@@ -1,0 +1,13 @@
+{
+  "name": "@music-flow/stripe",
+  "version": "0.0.0",
+  "private": true,
+  "main": "./index.ts",
+  "types": "./index.ts",
+  "dependencies": {
+    "stripe": "^23.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0"
+  }
+}

@@ -1,0 +1,45 @@
+Para continuar con el desarrollo de MusicFlow (MaestroSync) (o si te refieres al proyecto de facturación CFDI, confírmamelo), aquí tienes exactamente lo que necesitamos definir y configurar:
+
+1. Variables de Entorno y Conexión a Servicios
+Para poder probar y hacer funcional el backend y la persistencia en tiempo real, se requiere configurar el archivo .env con:
+
+Supabase:
+NEXT_PUBLIC_SUPABASE_URL y NEXT_PUBLIC_SUPABASE_ANON_KEY
+SUPABASE_SERVICE_ROLE_KEY (para tareas administrativas y backend)
+Ejecutar la migración inicial de 
+
+supabase/schema.sql
+ en tu proyecto de Supabase.
+Stripe (Monetización):
+STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET y los IDs de los Price/Product creados para los planes mensual/anual.
+Autenticación Social (Opcional por ahora):
+Credenciales de Google / Apple en el dashboard de Supabase Auth si deseas habilitar inicio de sesión social.
+2. Definición sobre el Motor OMR (Reconocimiento Musical)
+Para el procesamiento de PDFs e imágenes de partituras:
+
+¿Cómo prefieres abordar el OMR para esta etapa?
+Microservicio dedicado (Recomendado): Montar un contenedor Python con oemer (en Railway, Fly.io, etc.) que reciba las páginas del PDF y devuelva el mapa de coordenadas/pentagramas.
+Marcador manual / Mock estructurado inicial: Implementar primero el flujo de carga donde el usuario indica o ajusta el número de compases y sistemas por página mientras se conecta el microservicio de OMR.
+3. Definir la Prioridad de la Siguiente Tarea
+¿En qué módulo prefieres que nos enfoquemos a continuación?
+
+Sesión en Vivo y Sincronización Realtime (
+
+apps/web/app/[locale]/session/[code]
+):
+Refinar la sincronización milimétrica Director ↔ Ejecutantes (Play/Pause/Seek/Tempo), selección de instrumento y animación de highlight por pentagrama con auto-scroll.
+Subida y Procesamiento de Partituras (
+
+apps/web/app/[locale]/upload
+):
+Conversión de PDF a imágenes, almacenamiento en buckets de Supabase Storage y generación del mapa de sincronización.
+Flujo de Suscripciones y Pagos (
+
+packages/stripe
+):
+Portales de facturación, suscripción individual/orquesta y límites de partituras (Tier gratuito vs Pro).
+Panel de Administración (
+
+apps/admin
+):
+Métricas en tiempo real, gestión y moderación de usuarios y partituras.

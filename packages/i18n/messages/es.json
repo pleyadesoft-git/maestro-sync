@@ -1,0 +1,56 @@
+{
+  "common": {
+    "appName": "MaestroSync",
+    "tagline": "Lectura sincronizada de partituras para orquestas y agrupaciones",
+    "login": "Iniciar sesión",
+    "signup": "Registrarse",
+    "logout": "Cerrar sesión",
+    "dashboard": "Panel principal",
+    "library": "Biblioteca de partituras",
+    "upload": "Subir partitura",
+    "joinSession": "Unirse a sala",
+    "createSession": "Crear nueva sala",
+    "settings": "Configuración",
+    "save": "Guardar",
+    "cancel": "Cancelar",
+    "back": "Volver",
+    "next": "Siguiente"
+  },
+  "auth": {
+    "welcomeBack": "Bienvenido de nuevo",
+    "continueWithGoogle": "Continuar con Google",
+    "continueWithApple": "Continuar con Apple",
+    "signInWithPasskey": "Acceso rápido con Face ID / Touch ID",
+    "orEmail": "o con tu correo electrónico",
+    "emailLabel": "Correo electrónico",
+    "passwordLabel": "Contraseña",
+    "registerPasskey": "Activar inicio rápido con Biometría / Passkey"
+  },
+  "playback": {
+    "director": "Director",
+    "performer": "Ejecutante",
+    "play": "Reproducir",
+    "pause": "Pausar",
+    "stop": "Detener",
+    "tempo": "Tempo (BPM)",
+    "currentMeasure": "Compás actual",
+    "selectInstrument": "Selecciona tu instrumento",
+    "takeDirectorRole": "Tomar control como Director",
+    "roomCode": "Código de sala",
+    "participants": "Integrantes conectados"
+  },
+  "upload": {
+    "title": "Subida y marcado manual",
+    "step1": "Metadatos de la obra",
+    "step2": "Renderizado de páginas",
+    "step3": "Marcado de pentagramas",
+    "workTitle": "Título de la obra",
+    "composer": "Compositor",
+    "catalogRef": "Referencia de catálogo (ej. Op. 5, K. 466)",
+    "timeSignature": "Compás (time signature)",
+    "defaultBpm": "Tempo base (BPM)",
+    "totalMeasures": "Total de compases",
+    "addSystem": "Agregar pentagrama",
+    "saveScore": "Guardar partitura en biblioteca"
+  }
+}

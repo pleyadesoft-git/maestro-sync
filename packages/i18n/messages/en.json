@@ -1,0 +1,56 @@
+{
+  "common": {
+    "appName": "MaestroSync",
+    "tagline": "Synchronized sheet music reading for orchestras and ensembles",
+    "login": "Sign in",
+    "signup": "Sign up",
+    "logout": "Sign out",
+    "dashboard": "Dashboard",
+    "library": "Sheet Music Library",
+    "upload": "Upload Score",
+    "joinSession": "Join Room",
+    "createSession": "Create New Room",
+    "settings": "Settings",
+    "save": "Save",
+    "cancel": "Cancel",
+    "back": "Back",
+    "next": "Next"
+  },
+  "auth": {
+    "welcomeBack": "Welcome back",
+    "continueWithGoogle": "Continue with Google",
+    "continueWithApple": "Continue with Apple",
+    "signInWithPasskey": "Quick Sign-In with Face ID / Touch ID",
+    "orEmail": "or with your email",
+    "emailLabel": "Email address",
+    "passwordLabel": "Password",
+    "registerPasskey": "Enable Face ID / Touch ID Passkey"
+  },
+  "playback": {
+    "director": "Conductor",
+    "performer": "Musician",
+    "play": "Play",
+    "pause": "Pause",
+    "stop": "Stop",
+    "tempo": "Tempo (BPM)",
+    "currentMeasure": "Current Measure",
+    "selectInstrument": "Select your instrument",
+    "takeDirectorRole": "Take Conductor Control",
+    "roomCode": "Room Code",
+    "participants": "Connected Musicians"
+  },
+  "upload": {
+    "title": "Upload & Manual Marking",
+    "step1": "Work Metadata",
+    "step2": "Page Rendering",
+    "step3": "System Marking",
+    "workTitle": "Work Title",
+    "composer": "Composer",
+    "catalogRef": "Catalog Ref (e.g. Op. 5, K. 466)",
+    "timeSignature": "Time Signature",
+    "defaultBpm": "Default Tempo (BPM)",
+    "totalMeasures": "Total Measures",
+    "addSystem": "Add System",
+    "saveScore": "Save Score to Library"
+  }
+}
