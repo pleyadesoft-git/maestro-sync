@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useRef } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import { Button, HighlightOverlay } from '@music-flow/ui'
+import { Button, HighlightOverlay, MusicScoreSheet } from '@music-flow/ui'
 import { usePlaybackStore, useSessionStore } from '@music-flow/stores'
 import { createBrowserClient } from '@music-flow/supabase'
 import {
@@ -47,7 +47,12 @@ export default function SessionPage({
 
   const [activeSystemIndex, setActiveSystemIndex] = useState(0)
   const [selectedInstrument, setSelectedInst] = useState('Violín I')
-  const [scoreSystems, setScoreSystems] = useState<ScoreSystem[]>([])
+  const [scoreSystems, setScoreSystems] = useState<ScoreSystem[]>([
+    { id: 's1', measureStart: 1, measureCount: 4, bboxX: 0.04, bboxY: 0.14, bboxW: 0.94, bboxH: 0.17, instrument: 'Violín I' },
+    { id: 's2', measureStart: 5, measureCount: 4, bboxX: 0.04, bboxY: 0.35, bboxW: 0.94, bboxH: 0.17, instrument: 'Violín II' },
+    { id: 's3', measureStart: 9, measureCount: 4, bboxX: 0.04, bboxY: 0.56, bboxW: 0.94, bboxH: 0.17, instrument: 'Viola' },
+    { id: 's4', measureStart: 13, measureCount: 4, bboxX: 0.04, bboxY: 0.77, bboxW: 0.94, bboxH: 0.17, instrument: 'Violonchelo' },
+  ])
   const [connectedUsers, setConnectedUsers] = useState<any[]>([])
   
   const supabase = createBrowserClient()
@@ -110,7 +115,7 @@ export default function SessionPage({
     }
     
     fetchSessionData()
-  }, [code, supabase])
+  }, [code, supabase, setPlayback])
 
   // Realtime Subscriptions
   useEffect(() => {
@@ -276,18 +281,16 @@ export default function SessionPage({
       {/* Main Music Sheet Stand View */}
       <div className="flex-1 relative bg-slate-950 p-6 flex items-center justify-center">
         <div className="max-w-4xl w-full h-[620px] bg-slate-900/90 border border-slate-800 rounded-2xl relative p-8 shadow-2xl flex flex-col justify-between overflow-hidden">
-          {/* Simulated Sheet Lines */}
-          <div className="space-y-16 my-auto opacity-20 pointer-events-none">
-            {[1, 2, 3, 4].map((sysIdx) => (
-              <div key={sysIdx} className="space-y-1.5">
-                <div className="h-[1.5px] bg-slate-100" />
-                <div className="h-[1.5px] bg-slate-100" />
-                <div className="h-[1.5px] bg-slate-100" />
-                <div className="h-[1.5px] bg-slate-100" />
-                <div className="h-[1.5px] bg-slate-100" />
-              </div>
-            ))}
-          </div>
+          {/* Real Music Sheet with Notes, Clefs and Staves */}
+          <MusicScoreSheet
+            title="Sinfonía No. 5 en Do menor"
+            composer="Ludwig van Beethoven, Op. 67"
+            subtitle="I. Allegro con brio"
+            timeSignature="2/4"
+            activeSystemIndex={activeSystemIndex}
+            activeMeasure={currentMeasure}
+            selectedInstrument={selectedInstrument}
+          />
 
           {/* Active Animated System Bounding Box Overlay */}
           {scoreSystems[activeSystemIndex] && (

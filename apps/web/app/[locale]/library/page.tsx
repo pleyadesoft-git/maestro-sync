@@ -42,6 +42,10 @@ const MOCK_WORKS = [
   },
 ]
 
+function generateRoomCode(): string {
+  return Math.random().toString(36).substring(2, 8).toUpperCase()
+}
+
 export default function LibraryPage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = React.use(params)
   const router = useRouter()
@@ -58,7 +62,7 @@ export default function LibraryPage({ params }: { params: Promise<{ locale: stri
   })
 
   const handleStartSessionWithWork = (workId: string) => {
-    const code = Math.random().toString(36).substring(2, 8).toUpperCase()
+    const code = generateRoomCode()
     router.push(`/${locale}/session/${code}?role=director&workId=${workId}`)
   }
 

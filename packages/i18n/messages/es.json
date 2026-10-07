@@ -52,5 +52,15 @@
     "totalMeasures": "Total de compases",
     "addSystem": "Agregar pentagrama",
     "saveScore": "Guardar partitura en biblioteca"
+  },
+  "validation": {
+    "required": "Este campo es requerido",
+    "invalidEmail": "Introduce un correo electrónico válido",
+    "passwordMinLength": "La contraseña debe tener al menos 6 caracteres",
+    "roomCodeRequired": "Por favor introduce el código de la sala",
+    "roomCodeInvalid": "El código debe tener al menos 4 caracteres",
+    "fileRequired": "Por favor selecciona una partitura en PDF o imagen",
+    "minNumber": "El valor mínimo permitido es {min}",
+    "maxNumber": "El valor máximo permitido es {max}"
   }
 }

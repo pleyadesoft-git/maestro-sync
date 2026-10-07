@@ -3,7 +3,7 @@
 import React, { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Button, Card, CardHeader, CardTitle, CardDescription } from '@music-flow/ui'
+import { Button, Card, CardHeader, CardTitle, CardDescription, Input } from '@music-flow/ui'
 import { createBrowserClient } from '@music-flow/supabase'
 import { useAuthStore } from '@music-flow/stores'
 import { Fingerprint, Mail, Lock, Sparkles, ArrowLeft } from 'lucide-react'
@@ -17,8 +17,20 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
   const [loading, setLoading] = useState(false)
   const [passkeyStatus, setPasskeyStatus] = useState<string | null>(null)
 
-  const handleEmailAuth = async (e: React.FormEvent) => {
+  const handleEmailAuth = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
+
+    const form = e.currentTarget
+    if (!form.checkValidity()) {
+      const firstInvalid = form.querySelector(':invalid') as HTMLElement
+      if (firstInvalid) {
+        firstInvalid.focus()
+        firstInvalid.setAttribute('aria-invalid', 'true')
+      }
+      form.querySelectorAll(':invalid').forEach((el) => el.setAttribute('aria-invalid', 'true'))
+      return
+    }
+
     setLoading(true)
     const supabase = createBrowserClient()
 
@@ -116,42 +128,32 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
         </div>
 
         {/* Form */}
-        <form onSubmit={handleEmailAuth} className="space-y-4">
-          <div>
-            <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
-              Correo Electrónico
-            </label>
-            <div className="relative">
-              <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5" />
-              <input
-                type="email"
-                required
-                placeholder="musico@orquesta.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full h-11 pl-10 pr-4 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-500 text-sm"
-              />
-            </div>
-          </div>
+        <form noValidate onSubmit={handleEmailAuth} className="space-y-4">
+          <Input
+            label="Correo Electrónico"
+            type="email"
+            required
+            autoComplete="email"
+            placeholder="musico@orquesta.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            leftIcon={<Mail className="w-4 h-4" />}
+          />
 
-          <div>
-            <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
-              Contraseña
-            </label>
-            <div className="relative">
-              <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5" />
-              <input
-                type="password"
-                required
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full h-11 pl-10 pr-4 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-500 text-sm"
-              />
-            </div>
-          </div>
+          <Input
+            label="Contraseña"
+            type="password"
+            required
+            minLength={6}
+            autoComplete="current-password"
+            placeholder="••••••••"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            leftIcon={<Lock className="w-4 h-4" />}
+            helperText="Mínimo 6 caracteres"
+          />
 
-          <Button type="submit" variant="primary" className="w-full" disabled={loading}>
+          <Button type="submit" variant="primary" className="w-full mt-2" disabled={loading}>
             {loading ? 'Verificando...' : 'Entrar a MaestroSync'}
           </Button>
         </form>

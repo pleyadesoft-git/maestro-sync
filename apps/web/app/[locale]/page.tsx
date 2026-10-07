@@ -4,17 +4,26 @@ import React, { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Button, Card, CardHeader, CardTitle, CardDescription } from '@music-flow/ui'
-import { Music, Play, PlusCircle, LogIn, Sparkles, BookOpen, Shield } from 'lucide-react'
+import { Music, Play, PlusCircle, LogIn, Sparkles, BookOpen, Shield, AlertCircle } from 'lucide-react'
 
 export default function HomePage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = React.use(params)
   const router = useRouter()
   const [roomCode, setRoomCode] = useState('')
+  const [roomError, setRoomError] = useState<string | null>(null)
 
   const handleJoinRoom = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!roomCode.trim()) return
-    router.push(`/${locale}/session/${roomCode.trim().toUpperCase()}`)
+    const trimmed = roomCode.trim()
+    if (!trimmed) {
+      setRoomError('Por favor introduce el código de la sala')
+      return
+    }
+    if (trimmed.length < 4) {
+      setRoomError('El código de sala debe tener al menos 4 caracteres')
+      return
+    }
+    router.push(`/${locale}/session/${trimmed.toUpperCase()}`)
   }
 
   const handleCreateQuickRoom = () => {
@@ -56,15 +65,32 @@ export default function HomePage({ params }: { params: Promise<{ locale: string 
             <CardTitle>Unirme a una Sala</CardTitle>
             <CardDescription>Ingresa como Ejecutante con el código proporcionado por tu Director.</CardDescription>
           </CardHeader>
-          <form onSubmit={handleJoinRoom} className="space-y-4">
-            <div>
+          <form noValidate onSubmit={handleJoinRoom} className="space-y-4">
+            <div className="space-y-1.5">
               <input
                 type="text"
+                required
+                minLength={4}
                 placeholder="Código de sala (ej. MZ7K2Q)"
                 value={roomCode}
-                onChange={(e) => setRoomCode(e.target.value)}
-                className="w-full h-12 px-4 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-amber-500 uppercase tracking-widest font-mono text-center text-lg font-bold"
+                aria-invalid={roomError ? 'true' : undefined}
+                onChange={(e) => {
+                  setRoomCode(e.target.value)
+                  if (roomError) setRoomError(null)
+                }}
+                onInvalid={(e) => e.preventDefault()}
+                className={`w-full h-12 px-4 rounded-xl bg-slate-950 border text-slate-100 placeholder-slate-500 focus:outline-none focus:border-amber-500 uppercase tracking-widest font-mono text-center text-lg font-bold transition-all duration-150 ${
+                  roomError
+                    ? 'border-rose-500 bg-rose-950/15 focus:border-rose-500 focus:ring-1 focus:ring-rose-500/30'
+                    : 'border-slate-800'
+                }`}
               />
+              {roomError && (
+                <p role="alert" className="flex items-center justify-center gap-1.5 text-xs font-medium text-rose-400 animate-in fade-in slide-in-from-top-1 duration-150">
+                  <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                  <span>{roomError}</span>
+                </p>
+              )}
             </div>
             <Button type="submit" variant="primary" className="w-full">
               Ingresar a la Sala

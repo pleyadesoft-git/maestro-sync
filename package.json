@@ -5,7 +5,9 @@
     "build": "turbo run build",
     "dev": "turbo run dev",
     "dev:web": "turbo run dev --filter=web",
+    "web:dev": "turbo run dev --filter=web",
     "dev:admin": "turbo run dev --filter=admin",
+    "admin:dev": "turbo run dev --filter=admin",
     "lint": "turbo run lint"
   },
   "devDependencies": {

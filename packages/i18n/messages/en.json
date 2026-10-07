@@ -52,5 +52,15 @@
     "totalMeasures": "Total Measures",
     "addSystem": "Add System",
     "saveScore": "Save Score to Library"
+  },
+  "validation": {
+    "required": "This field is required",
+    "invalidEmail": "Please enter a valid email address",
+    "passwordMinLength": "Password must be at least 6 characters",
+    "roomCodeRequired": "Please enter the room code",
+    "roomCodeInvalid": "The code must be at least 4 characters",
+    "fileRequired": "Please select a sheet music file (PDF or image)",
+    "minNumber": "Minimum allowed value is {min}",
+    "maxNumber": "Maximum allowed value is {max}"
   }
 }

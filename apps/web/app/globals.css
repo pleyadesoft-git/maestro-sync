@@ -85,3 +85,78 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #f59e0b;
 }
+
+/* ==========================================================================
+   Modern Input & Form Validation — Stand-Ready UI/UX System
+   Replaces native HTML5 tooltips with deep dark theme alerts (:user-invalid)
+   ========================================================================== */
+
+/* Modern :user-invalid and aria-invalid states */
+input:user-invalid,
+textarea:user-invalid,
+select:user-invalid,
+input[aria-invalid="true"],
+textarea[aria-invalid="true"],
+select[aria-invalid="true"],
+.is-invalid {
+  border-color: #f43f5e !important;
+  background-color: rgba(244, 63, 94, 0.08) !important;
+  box-shadow: 0 0 0 1px rgba(244, 63, 94, 0.3) !important;
+}
+
+input:user-invalid:focus,
+textarea:user-invalid:focus,
+select:user-invalid:focus,
+input[aria-invalid="true"]:focus,
+textarea[aria-invalid="true"]:focus,
+select[aria-invalid="true"]:focus,
+.is-invalid:focus {
+  border-color: #f43f5e !important;
+  box-shadow: 0 0 0 2px rgba(244, 63, 94, 0.45) !important;
+  outline: none !important;
+}
+
+/* Positive validation state when user-valid and non-empty */
+input:user-valid:not(:placeholder-shown):focus,
+textarea:user-valid:not(:placeholder-shown):focus,
+select:user-valid:focus {
+  border-color: #f59e0b;
+}
+
+/* Modern field containers with :has() support */
+.form-field:has(input:user-invalid) label,
+.form-field:has(input[aria-invalid="true"]) label,
+.form-field:has(.is-invalid) label {
+  color: #fb7185;
+}
+
+.form-field:has(input:user-invalid) .field-error,
+.form-field:has(input[aria-invalid="true"]) .field-error,
+.form-field:has(.is-invalid) .field-error {
+  display: flex !important;
+  opacity: 1 !important;
+}
+
+/* Sibling error message auto-reveal */
+input:user-invalid + .validation-error,
+textarea:user-invalid + .validation-error,
+select:user-invalid + .validation-error,
+input[aria-invalid="true"] + .validation-error,
+textarea[aria-invalid="true"] + .validation-error,
+select[aria-invalid="true"] + .validation-error {
+  display: flex !important;
+  opacity: 1 !important;
+}
+
+.validation-error,
+.field-error {
+  display: none;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 500;
+  color: #fb7185;
+  margin-top: 0.375rem;
+  transition: all 0.15s ease-out;
+}
