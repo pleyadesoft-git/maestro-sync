@@ -1,5 +1,8 @@
-import React from 'react'
+'use client'
+
+import React, { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { cn } from './utils'
+import { HighlightOverlay } from './HighlightOverlay'
 
 export interface MusicScoreSheetProps {
   className?: string
@@ -11,6 +14,54 @@ export interface MusicScoreSheetProps {
   activeSystemIndex?: number
   activeMeasure?: number
   selectedInstrument?: string
+  highlightLabel?: string
+}
+
+interface NormalizedBBox {
+  bboxX: number
+  bboxY: number
+  bboxW: number
+  bboxH: number
+}
+
+/**
+ * Staff lines live at y=25–65 of a 100-unit SVG viewBox stretched to the row.
+ * Inset the glow so it sits on the pentagram (not the title chrome) on any viewport.
+ */
+function staffCenteredBox(row: DOMRect, host: DOMRect): NormalizedBBox {
+  const insetY = row.height * 0.08
+  const insetX = row.width * 0.012
+  const top = row.top + insetY
+  const left = row.left + insetX
+  const height = Math.max(row.height - insetY * 2, 1)
+  const width = Math.max(row.width - insetX * 2, 1)
+
+  return {
+    bboxX: (left - host.left) / host.width,
+    bboxY: (top - host.top) / host.height,
+    bboxW: width / host.width,
+    bboxH: height / host.height,
+  }
+}
+
+function StaffSystem({
+  index,
+  register,
+  children,
+}: {
+  index: number
+  register: (index: number, el: HTMLDivElement | null) => void
+  children: React.ReactNode
+}) {
+  return (
+    <div
+      ref={(el) => register(index, el)}
+      data-score-system={index}
+      className="relative w-full flex-1 min-h-0"
+    >
+      {children}
+    </div>
+  )
 }
 
 export function MusicScoreSheet({
@@ -23,32 +74,89 @@ export function MusicScoreSheet({
   activeSystemIndex,
   activeMeasure,
   selectedInstrument,
+  highlightLabel,
 }: MusicScoreSheetProps) {
+  const stavesHostRef = useRef<HTMLDivElement>(null)
+  const systemElsRef = useRef<Array<HTMLDivElement | null>>([])
+  const [highlightBox, setHighlightBox] = useState<NormalizedBBox | null>(null)
+
+  const registerSystem = useCallback((index: number, el: HTMLDivElement | null) => {
+    systemElsRef.current[index] = el
+  }, [])
+
+  const measureActiveStaff = useCallback(() => {
+    const host = stavesHostRef.current
+    if (!host || activeSystemIndex == null) {
+      setHighlightBox(null)
+      return
+    }
+
+    const row = systemElsRef.current[activeSystemIndex]
+    if (!row) {
+      setHighlightBox(null)
+      return
+    }
+
+    const hostRect = host.getBoundingClientRect()
+    const rowRect = row.getBoundingClientRect()
+    if (hostRect.width < 1 || hostRect.height < 1) return
+
+    setHighlightBox(staffCenteredBox(rowRect, hostRect))
+  }, [activeSystemIndex])
+
+  useLayoutEffect(() => {
+    measureActiveStaff()
+
+    const host = stavesHostRef.current
+    if (!host || typeof ResizeObserver === 'undefined') return
+
+    const observer = new ResizeObserver(() => measureActiveStaff())
+    observer.observe(host)
+    systemElsRef.current.forEach((el) => {
+      if (el) observer.observe(el)
+    })
+
+    window.addEventListener('resize', measureActiveStaff)
+    window.addEventListener('orientationchange', measureActiveStaff)
+
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', measureActiveStaff)
+      window.removeEventListener('orientationchange', measureActiveStaff)
+    }
+  }, [measureActiveStaff])
+
+  const overlayLabel =
+    highlightLabel ??
+    (selectedInstrument && activeSystemIndex != null
+      ? `${selectedInstrument} — Compás ${activeMeasure ?? 1}`
+      : undefined)
+
   return (
     <div
       className={cn(
-        'w-full h-full flex flex-col justify-between select-none relative overflow-hidden text-slate-200',
+        'w-full h-full flex flex-col select-none relative overflow-hidden text-slate-200',
         className
       )}
     >
-      {/* Score Header */}
-      <div className="flex items-start justify-between pb-3 border-b border-slate-800/80 mb-2">
-        <div>
-          <div className="flex items-baseline gap-3">
-            <h2 className="text-base sm:text-lg font-serif font-bold tracking-tight text-slate-100">
+      {/* Score Header — compact on mobile so it never steals the overlay coordinate space */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between pb-2 sm:pb-3 border-b border-slate-800/80 mb-1 sm:mb-2 shrink-0">
+        <div className="min-w-0">
+          <div className="flex flex-col sm:flex-row sm:items-baseline gap-0.5 sm:gap-3">
+            <h2 className="text-sm sm:text-lg font-serif font-bold tracking-tight text-slate-100 truncate">
               {title}
             </h2>
-            <span className="text-xs font-serif italic text-amber-400/90 font-medium">
+            <span className="text-[11px] sm:text-xs font-serif italic text-amber-400/90 font-medium">
               {subtitle}
             </span>
           </div>
-          <p className="text-[11px] text-slate-400 font-serif">
+          <p className="text-[10px] sm:text-[11px] text-slate-400 font-serif truncate">
             {composer} • {timeSignature}
           </p>
         </div>
 
-        <div className="flex flex-col items-end gap-1">
-          <div className="flex items-center gap-2 bg-slate-900/90 border border-slate-800 px-2.5 py-1 rounded-md text-[11px]">
+        <div className="flex flex-col items-start sm:items-end gap-1 shrink-0">
+          <div className="flex items-center gap-2 bg-slate-900/90 border border-slate-800 px-2.5 py-1 rounded-md text-[10px] sm:text-[11px]">
             <span className="font-serif italic font-semibold text-amber-400">{tempoText}</span>
           </div>
           {selectedInstrument && (
@@ -59,10 +167,13 @@ export function MusicScoreSheet({
         </div>
       </div>
 
-      {/* SVG Staves Container */}
-      <div className="flex-1 w-full relative flex flex-col justify-around py-1">
+      {/* SVG Staves Container — overlay is measured against this box only */}
+      <div
+        ref={stavesHostRef}
+        className="flex-1 min-h-0 w-full relative flex flex-col justify-around py-1"
+      >
         {/* System 1: Violín I (The iconic opening motif) */}
-        <div className="relative w-full h-[22%] min-h-[70px]">
+        <StaffSystem index={0} register={registerSystem}>
           <svg
             viewBox="0 0 1000 100"
             preserveAspectRatio="none"
@@ -228,10 +339,10 @@ export function MusicScoreSheet({
             {/* End barline of system */}
             <line x1="980" y1="25" x2="980" y2="65" stroke="#cbd5e1" strokeWidth="1.5" />
           </svg>
-        </div>
+        </StaffSystem>
 
         {/* System 2: Violín II */}
-        <div className="relative w-full h-[22%] min-h-[70px]">
+        <StaffSystem index={1} register={registerSystem}>
           <svg
             viewBox="0 0 1000 100"
             preserveAspectRatio="none"
@@ -346,10 +457,10 @@ export function MusicScoreSheet({
 
             <line x1="980" y1="25" x2="980" y2="65" stroke="#cbd5e1" strokeWidth="1.5" />
           </svg>
-        </div>
+        </StaffSystem>
 
         {/* System 3: Viola (Alto clef) */}
-        <div className="relative w-full h-[22%] min-h-[70px]">
+        <StaffSystem index={2} register={registerSystem}>
           <svg
             viewBox="0 0 1000 100"
             preserveAspectRatio="none"
@@ -459,10 +570,10 @@ export function MusicScoreSheet({
 
             <line x1="980" y1="25" x2="980" y2="65" stroke="#cbd5e1" strokeWidth="1.5" />
           </svg>
-        </div>
+        </StaffSystem>
 
         {/* System 4: Violonchelo y Contrabajo (Bass clef) */}
-        <div className="relative w-full h-[22%] min-h-[70px]">
+        <StaffSystem index={3} register={registerSystem}>
           <svg
             viewBox="0 0 1000 100"
             preserveAspectRatio="none"
@@ -578,7 +689,17 @@ export function MusicScoreSheet({
 
             <line x1="980" y1="25" x2="980" y2="65" stroke="#cbd5e1" strokeWidth="1.5" />
           </svg>
-        </div>
+        </StaffSystem>
+
+        {highlightBox && activeSystemIndex != null && (
+          <HighlightOverlay
+            bboxX={highlightBox.bboxX}
+            bboxY={highlightBox.bboxY}
+            bboxW={highlightBox.bboxW}
+            bboxH={highlightBox.bboxH}
+            label={overlayLabel}
+          />
+        )}
       </div>
     </div>
   )

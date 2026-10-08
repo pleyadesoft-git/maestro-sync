@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useRef } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import { Button, HighlightOverlay, MusicScoreSheet } from '@music-flow/ui'
+import { MusicScoreSheet } from '@music-flow/ui'
 import { usePlaybackStore, useSessionStore } from '@music-flow/stores'
 import { createBrowserClient } from '@music-flow/supabase'
 import {
@@ -240,9 +240,9 @@ export default function SessionPage({
   const isDirector = isDirectorParam || role === 'director'
 
   return (
-    <main className="min-h-screen bg-slate-950 flex flex-col text-slate-100 select-none overflow-hidden">
+    <main className="h-dvh min-h-0 bg-slate-950 flex flex-col text-slate-100 select-none overflow-hidden">
       {/* Top Stand Navbar */}
-      <header className="h-16 border-b border-slate-800 bg-slate-900/90 backdrop-blur-md px-6 flex items-center justify-between z-20">
+      <header className="h-14 sm:h-16 shrink-0 border-b border-slate-800 bg-slate-900/90 backdrop-blur-md px-3 sm:px-6 flex items-center justify-between z-20">
         <div className="flex items-center gap-4">
           <Link href={`/${locale}/library`} className="p-2 rounded-xl text-slate-400 hover:text-amber-400 hover:bg-slate-800 transition-colors">
             <ChevronLeft className="w-5 h-5" />
@@ -279,8 +279,8 @@ export default function SessionPage({
       </header>
 
       {/* Main Music Sheet Stand View */}
-      <div className="flex-1 relative bg-slate-950 p-6 flex items-center justify-center">
-        <div className="max-w-4xl w-full h-[620px] bg-slate-900/90 border border-slate-800 rounded-2xl relative p-8 shadow-2xl flex flex-col justify-between overflow-hidden">
+      <div className="flex-1 relative min-h-0 bg-slate-950 p-3 sm:p-6 flex items-center justify-center overflow-hidden">
+        <div className="max-w-4xl w-full h-full bg-slate-900/90 border border-slate-800 rounded-2xl relative p-3 sm:p-6 shadow-2xl flex flex-col overflow-hidden">
           {/* Real Music Sheet with Notes, Clefs and Staves */}
           <MusicScoreSheet
             title="Sinfonía No. 5 en Do menor"
@@ -290,21 +290,15 @@ export default function SessionPage({
             activeSystemIndex={activeSystemIndex}
             activeMeasure={currentMeasure}
             selectedInstrument={selectedInstrument}
+            highlightLabel={
+              scoreSystems[activeSystemIndex]
+                ? `${selectedInstrument} — Compás ${scoreSystems[activeSystemIndex].measureStart}`
+                : undefined
+            }
           />
 
-          {/* Active Animated System Bounding Box Overlay */}
-          {scoreSystems[activeSystemIndex] && (
-            <HighlightOverlay
-              bboxX={scoreSystems[activeSystemIndex].bboxX}
-              bboxY={scoreSystems[activeSystemIndex].bboxY}
-              bboxW={scoreSystems[activeSystemIndex].bboxW}
-              bboxH={scoreSystems[activeSystemIndex].bboxH}
-              label={`${selectedInstrument} — Compás ${scoreSystems[activeSystemIndex].measureStart}`}
-            />
-          )}
-
           {/* Measure Progress Footer Badge */}
-          <div className="absolute bottom-4 right-6 bg-slate-950/80 backdrop-blur-md px-4 py-2 rounded-xl border border-slate-800 flex items-center gap-3">
+          <div className="absolute bottom-3 right-3 sm:bottom-4 sm:right-6 z-10 bg-slate-950/80 backdrop-blur-md px-4 py-2 rounded-xl border border-slate-800 flex items-center gap-3">
             <span className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Compás</span>
             <span className="font-mono text-xl font-bold text-amber-400">{currentMeasure}</span>
           </div>
@@ -312,7 +306,7 @@ export default function SessionPage({
       </div>
 
       {/* Bottom Control Toolbar (Director Controls / Musicians Toolbar) */}
-      <footer className="h-20 border-t border-slate-800 bg-slate-900/95 backdrop-blur-md px-8 flex items-center justify-between z-20">
+      <footer className="h-16 sm:h-20 shrink-0 border-t border-slate-800 bg-slate-900/95 backdrop-blur-md px-3 sm:px-8 flex items-center justify-between z-20">
         {/* Connected Participants */}
         <div className="flex items-center gap-2 text-slate-400 text-xs">
           <Users className="w-4 h-4 text-amber-400" />
