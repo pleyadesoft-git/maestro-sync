@@ -4,10 +4,21 @@
   "private": true,
   "main": "./index.ts",
   "types": "./index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./client": "./client.ts",
+    "./server": "./server.ts",
+    "./types": "./types.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.2"
   },
   "devDependencies": {
+    "@music-flow/config": "workspace:*",
+    "@types/node": "^22.0.0",
     "typescript": "^5.8.0"
   }
 }

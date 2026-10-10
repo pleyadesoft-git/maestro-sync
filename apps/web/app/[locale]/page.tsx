@@ -4,13 +4,18 @@ import React, { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Button, Card, CardHeader, CardTitle, CardDescription } from '@music-flow/ui'
-import { Music, Play, PlusCircle, LogIn, Sparkles, BookOpen, Shield, AlertCircle } from 'lucide-react'
+import { createBrowserClient } from '@music-flow/supabase'
+import { Music, Play, PlusCircle, LogIn, Sparkles, BookOpen, Shield, AlertCircle, Loader2 } from 'lucide-react'
+import { createRoomForVersion, fetchAnyOwnedVersion } from '../../lib/rooms'
 
 export default function HomePage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = React.use(params)
   const router = useRouter()
+  const supabase = createBrowserClient()
   const [roomCode, setRoomCode] = useState('')
   const [roomError, setRoomError] = useState<string | null>(null)
+  const [creating, setCreating] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
 
   const handleJoinRoom = (e: React.FormEvent) => {
     e.preventDefault()
@@ -19,17 +24,38 @@ export default function HomePage({ params }: { params: Promise<{ locale: string 
       setRoomError('Por favor introduce el código de la sala')
       return
     }
-    if (trimmed.length < 4) {
-      setRoomError('El código de sala debe tener al menos 4 caracteres')
+    if (!/^[A-Za-z0-9-]{4,10}$/.test(trimmed)) {
+      setRoomError('El código solo puede contener letras, números y guiones (ej. MZ7K-2Q)')
       return
     }
     router.push(`/${locale}/session/${trimmed.toUpperCase()}`)
   }
 
-  const handleCreateQuickRoom = () => {
-    // Generate a random 6-character room code (e.g., "MZ7K2Q")
-    const code = Math.random().toString(36).substring(2, 8).toUpperCase()
-    router.push(`/${locale}/session/${code}?role=director`)
+  const handleCreateQuickRoom = async () => {
+    if (creating) return
+    setCreating(true)
+    setCreateError(null)
+    try {
+      const owned = await fetchAnyOwnedVersion(supabase)
+      if (!owned) {
+        setCreateError('Aún no tienes partituras. Sube tu primera obra para poder iniciar una sala.')
+        return
+      }
+      const result = await createRoomForVersion(supabase, owned.versionId, owned.tempo)
+      if (!result.ok) {
+        if (result.kind === 'auth') {
+          router.push(`/${locale}/login`)
+          return
+        }
+        setCreateError(result.message)
+        return
+      }
+      router.push(`/${locale}/session/${result.roomCode}`)
+    } catch (e: any) {
+      setCreateError(e?.message || 'No se pudo crear la sala.')
+    } finally {
+      setCreating(false)
+    }
   }
 
   return (
@@ -108,15 +134,28 @@ export default function HomePage({ params }: { params: Promise<{ locale: string 
             <CardDescription>Crea una nueva sala efímera y controla la reproducción y el tempo en tiempo real.</CardDescription>
           </CardHeader>
           <div className="space-y-3">
-            <Button onClick={handleCreateQuickRoom} variant="secondary" className="w-full">
-              Crear Sala Inmediata
+            <Button onClick={() => void handleCreateQuickRoom()} variant="secondary" className="w-full" disabled={creating}>
+              {creating ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Creando sala…
+                </>
+              ) : (
+                'Crear Sala Inmediata'
+              )}
             </Button>
-            <Link href={`/${locale}/library`} className="block">
-              <Button variant="outline" className="w-full">
+            {createError && (
+              <p role="alert" className="flex items-start gap-1.5 text-xs font-medium text-rose-400">
+                <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0 mt-0.5" />
+                <span>{createError}</span>
+              </p>
+            )}
+            <Button asChild variant="outline" className="w-full">
+              <Link href={`/${locale}/library`}>
                 <BookOpen className="w-4 h-4 mr-2" />
                 Elegir de mi Biblioteca
-              </Button>
-            </Link>
+              </Link>
+            </Button>
           </div>
         </Card>
       </div>

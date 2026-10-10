@@ -43,3 +43,26 @@ Panel de Administración (
 apps/admin
 ):
 Métricas en tiempo real, gestión y moderación de usuarios y partituras.
+
+
+************************************
+
+
+Todo verificado en verde: pnpm lint ✅ (solo 1 warning preexistente de <img> con blob/data URL en upload), pnpm typecheck ✅ (8 paquetes/apps), pnpm build ✅ (web 3002 + admin 3001).
+Resumen de lo hecho en esta sesión
+Área	Qué cambió
+/ Home	"Crear Sala Inmediata" ahora usa la RPC create_session (room_code real en BD, sin Math.random()); validación de formato del código de sala; error inline si no hay obras.
+/library	Conectada a Supabase: obras reales del usuario, filtros por compositor y tonalidad, estados vacío/anónimo/error con CTA de login, botón "Iniciar Sala" vía RPC con feedback de carga.
+/upload	Persistencia real en cadena: archivo → Storage bucket scores → works → work_versions → scores → score_pages → score_systems (con instrument_id mapeado al catálogo sembrado); límite de 2 partituras del plan gratuito salvo suscripción activa; limpieza best-effort si algo falla a medias; nuevas entradas de tonalidad/compás/total de compases.
+/session/[code]	Renderizado de imágenes reales de score_pages con URLs firmadas de Supabase Storage; overlay de resaltado HighlightOverlay adaptativo; filtrado estricto por atril/instrumento (Regla 4); time_signature y total_measures derivados de works; soporte multi-página con auto-turn al avanzar el compás; fallback impecable al SVG demo de Beethoven.
+packages/stores	usePlaybackStore enriquecido con timeSignature, setTimeSignature y parseTimeSignatureToBeats para soporte milimétrico de compases (2/4, 3/4, 4/4, 6/8, etc.).
+packages/ui	MusicScoreSheet actualizado con interfaces ScorePageData y ScoreSystemData, soporte de páginas reales + paginador y auto-scroll; HighlightOverlay mejorado para evitar recorte superior de badges.
+apps/web/lib/rooms.ts	Helper compartido createRoomForVersion/fetchLatestVersion con mapeo de errores RPC a mensajes legibles.
+Fase 7 mínima	error.tsx, loading.tsx y not-found.tsx (dark stand-ready); fuga de listeners de PWAUpdateNotification corregida (workbox, registration.update(), visibilitychange, controllerchange).
+HTML inválido	Link > Button anidado reemplazado por <Button asChild> en home y library.
+Infra	Scripts typecheck agregados a apps/web y apps/admin para que pnpm typecheck cubra todo el monorepo.
+Doc	md-files/analisis-estado-del-proyecto.md actualizado con la sección "✅ Correcciones aplicadas".
+Pendiente (siguientes pasos del plan):
+1. Soporte multi-página en /upload con rasterizado de PDF (pdfjs-dist).
+2. Internacionalización completa (i18n con useTranslations en apps/web).
+3. Checkout Stripe y Portal de Facturación por usuario.

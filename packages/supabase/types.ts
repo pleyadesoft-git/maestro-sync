@@ -43,6 +43,7 @@ export interface Database {
           created_at?: string
           updated_at?: string
         }
+        Relationships: []
       }
       instruments: {
         Row: {
@@ -63,6 +64,7 @@ export interface Database {
           family?: string | null
           created_at?: string
         }
+        Relationships: []
       }
       works: {
         Row: {
@@ -107,6 +109,7 @@ export interface Database {
           created_at?: string
           updated_at?: string
         }
+        Relationships: []
       }
       work_versions: {
         Row: {
@@ -136,6 +139,7 @@ export interface Database {
           created_at?: string
           updated_at?: string
         }
+        Relationships: []
       }
       scores: {
         Row: {
@@ -174,6 +178,7 @@ export interface Database {
           created_at?: string
           updated_at?: string
         }
+        Relationships: []
       }
       score_pages: {
         Row: {
@@ -200,6 +205,7 @@ export interface Database {
           width_px?: number | null
           height_px?: number | null
         }
+        Relationships: []
       }
       score_systems: {
         Row: {
@@ -244,6 +250,7 @@ export interface Database {
           is_manually_corrected?: boolean
           created_at?: string
         }
+        Relationships: []
       }
       omr_jobs: {
         Row: {
@@ -276,6 +283,7 @@ export interface Database {
           created_at?: string
           completed_at?: string | null
         }
+        Relationships: []
       }
       sessions: {
         Row: {
@@ -314,6 +322,7 @@ export interface Database {
           created_at?: string
           updated_at?: string
         }
+        Relationships: []
       }
       session_participants: {
         Row: {
@@ -346,6 +355,7 @@ export interface Database {
           joined_at?: string
           left_at?: string | null
         }
+        Relationships: []
       }
       organizations: {
         Row: {
@@ -372,6 +382,7 @@ export interface Database {
           created_at?: string
           updated_at?: string
         }
+        Relationships: []
       }
       organization_members: {
         Row: {
@@ -395,6 +406,7 @@ export interface Database {
           invited_by?: string | null
           joined_at?: string
         }
+        Relationships: []
       }
       plans: {
         Row: {
@@ -424,6 +436,7 @@ export interface Database {
           billing_interval?: 'month' | 'year' | null
           is_active?: boolean
         }
+        Relationships: []
       }
       subscriptions: {
         Row: {
@@ -465,6 +478,7 @@ export interface Database {
           created_at?: string
           updated_at?: string
         }
+        Relationships: []
       }
       admin_notifications: {
         Row: {
@@ -488,6 +502,7 @@ export interface Database {
           is_read?: boolean
           created_at?: string
         }
+        Relationships: []
       }
       moderation_actions: {
         Row: {
@@ -517,7 +532,39 @@ export interface Database {
           reason?: string | null
           created_at?: string
         }
+        Relationships: []
       }
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      create_session: {
+        Args: { p_work_version_id: string; p_tempo_bpm?: number }
+        Returns: Database['public']['Tables']['sessions']['Row']
+      }
+      join_session: {
+        Args: { p_room_code: string }
+        Returns: Database['public']['Tables']['sessions']['Row']
+      }
+      transfer_director: {
+        Args: { p_session_id: string; p_new_director_id: string }
+        Returns: undefined
+      }
+      leave_session: {
+        Args: { p_session_id: string }
+        Returns: undefined
+      }
+      is_platform_admin: {
+        Args: Record<PropertyKey, never>
+        Returns: boolean
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
     }
   }
 }

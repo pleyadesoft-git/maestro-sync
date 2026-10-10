@@ -1,10 +1,11 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Button, Card, CardHeader, CardTitle, CardDescription, HighlightOverlay, Input, MusicScoreSheet } from '@music-flow/ui'
-import { Upload, ArrowLeft, Check, Plus, Trash2, Layers, Music, Sliders, AlertCircle, Eye, FileText, Sparkles } from 'lucide-react'
+import { createBrowserClient } from '@music-flow/supabase'
+import { Upload, ArrowLeft, Check, Plus, Trash2, AlertCircle, Loader2 } from 'lucide-react'
 
 interface SystemMark {
   id: string
@@ -17,13 +18,33 @@ interface SystemMark {
   bboxH: number
 }
 
+const KEY_SIGNATURES = [
+  'C major', 'G major', 'D major', 'A major', 'E major', 'Bb major', 'F major',
+  'A minor', 'E minor', 'B minor', 'F# minor', 'D minor', 'G minor', 'C minor',
+]
+
+const TIME_SIGNATURES = ['2/4', '3/4', '4/4', '6/8', '2/2', '3/8']
+
+// Etiqueta del editor → code sembrado en public.instruments
+const INSTRUMENT_LABEL_TO_CODE: Record<string, string> = {
+  'Violín I': 'violin_1',
+  'Violín II': 'violin_2',
+  Viola: 'viola',
+  Violonchelo: 'cello',
+}
+
+const FREE_SCORE_LIMIT = 2
+
 export default function UploadPage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = React.use(params)
   const router = useRouter()
+  const supabase = createBrowserClient()
   const [step, setStep] = useState<'meta' | 'mark'>('meta')
   const [title, setTitle] = useState('')
   const [composer, setComposer] = useState('')
   const [catalogRef, setCatalogRef] = useState('')
+  const [keySignature, setKeySignature] = useState('C major')
+  const [timeSignature, setTimeSignature] = useState('4/4')
   const [tempo, setTempo] = useState(120)
   const [totalMeasures, setTotalMeasures] = useState(64)
   const [fileName, setFileName] = useState<string | null>(null)
@@ -32,6 +53,9 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
   const [isRenderingPdf, setIsRenderingPdf] = useState(false)
   const [activeSystemId, setActiveSystemId] = useState<string>('sys-1')
   const [viewMode, setViewMode] = useState<'uploaded' | 'digital'>('uploaded')
+  const [isSaving, setIsSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const fileRef = useRef<File | null>(null)
 
   // Manual marking state - aligned with staves
   const [systems, setSystems] = useState<SystemMark[]>([
@@ -44,8 +68,15 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const selectedFile = e.target.files[0]
+      fileRef.current = selectedFile
       setFileName(selectedFile.name)
       setFileError(null)
+      setSaveError(null)
+
+      setFilePreviewUrl((prev) => {
+        if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev)
+        return null
+      })
 
       if (selectedFile.type.startsWith('image/')) {
         const url = URL.createObjectURL(selectedFile)
@@ -99,9 +130,182 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
     setSystems(systems.filter((sys) => sys.id !== id))
   }
 
-  const handleSaveScore = () => {
-    router.push(`/${locale}/library`)
+  const handleSaveScore = async () => {
+    if (isSaving) return
+    setSaveError(null)
+
+    const file = fileRef.current
+    if (!file) {
+      setSaveError('Selecciona el archivo de la partitura en el paso 1.')
+      setStep('meta')
+      return
+    }
+    if (!title.trim() || !composer.trim()) {
+      setSaveError('El título y el compositor son obligatorios.')
+      setStep('meta')
+      return
+    }
+    if (systems.length === 0) {
+      setSaveError('Agrega al menos un renglón/pentagrama marcado.')
+      return
+    }
+
+    setIsSaving(true)
+    let createdWorkId: string | null = null
+    try {
+      const { data: authData } = await supabase.auth.getUser()
+      const user = authData.user
+      if (!user) {
+        router.push(`/${locale}/login`)
+        return
+      }
+
+      // Límite del plan gratuito (2 partituras) salvo suscripción activa
+      const { count: scoreCount } = await supabase
+        .from('scores')
+        .select('id', { count: 'exact', head: true })
+        .eq('owner_id', user.id)
+      if ((scoreCount ?? 0) >= FREE_SCORE_LIMIT) {
+        const { data: subs } = await supabase
+          .from('subscriptions')
+          .select('status, current_period_end')
+          .eq('owner_user_id', user.id)
+          .in('status', ['active', 'trialing'])
+        const hasPaidPlan = (subs ?? []).some(
+          (s) => !s.current_period_end || Date.parse(s.current_period_end) > Date.now()
+        )
+        if (!hasPaidPlan) {
+          setSaveError(
+            `El plan gratuito permite hasta ${FREE_SCORE_LIMIT} partituras. Elimina una obra existente o actualiza tu plan para subir más.`
+          )
+          return
+        }
+      }
+
+      // 1) Archivo al bucket privado "scores" de Supabase Storage
+      const rawExtension = (file.name.split('.').pop() || '').replace(/[^a-z0-9]/gi, '').toLowerCase()
+      const extension = rawExtension || (file.type === 'application/pdf' ? 'pdf' : 'img')
+      const slug =
+        title
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/gi, '-')
+          .replace(/^-+|-+$/g, '')
+          .slice(0, 60) || 'score'
+      const filePath = `${user.id}/${crypto.randomUUID()}/${slug}.${extension}`
+      const { error: uploadError } = await supabase.storage
+        .from('scores')
+        .upload(filePath, file, { contentType: file.type || undefined, upsert: false })
+      if (uploadError) {
+        throw new Error(
+          `No se pudo subir el archivo (${uploadError.message}). Verifica que exista el bucket privado «scores» en Supabase Storage.`
+        )
+      }
+
+      // 2) Cadena de metadatos: works → work_versions → scores → score_pages → score_systems
+      const { data: work, error: workError } = await supabase
+        .from('works')
+        .insert({
+          owner_id: user.id,
+          title: title.trim(),
+          composer: composer.trim(),
+          catalog_reference: catalogRef.trim() || null,
+          key_signature: keySignature,
+          time_signature: timeSignature,
+          default_tempo_bpm: Math.min(320, Math.max(30, Math.round(tempo))),
+          total_measures: Math.max(1, Math.round(totalMeasures)),
+        })
+        .select('id')
+        .single()
+      if (workError || !work) throw new Error(workError?.message || 'No se pudo crear la obra.')
+      createdWorkId = work.id
+
+      const { data: version, error: versionError } = await supabase
+        .from('work_versions')
+        .insert({ work_id: work.id, version_name: 'Original' })
+        .select('id')
+        .single()
+      if (versionError || !version) {
+        throw new Error(versionError?.message || 'No se pudo crear la versión de la obra.')
+      }
+
+      const { data: score, error: scoreError } = await supabase
+        .from('scores')
+        .insert({
+          work_version_id: version.id,
+          owner_id: user.id,
+          file_path: filePath,
+          file_type: file.type === 'application/pdf' ? 'pdf' : 'image',
+          page_count: 1,
+          status: 'ready',
+          omr_engine: 'manual',
+        })
+        .select('id')
+        .single()
+      if (scoreError || !score) {
+        throw new Error(scoreError?.message || 'No se pudo registrar el archivo de la partitura.')
+      }
+
+      const { data: page, error: pageError } = await supabase
+        .from('score_pages')
+        .insert({ score_id: score.id, page_number: 1, image_path: filePath })
+        .select('id')
+        .single()
+      if (pageError || !page) throw new Error(pageError?.message || 'No se pudo registrar la página.')
+
+      // Vínculo con el catálogo de instrumentos (mejor esfuerzo)
+      const instrumentById = new Map<string, string>()
+      const { data: instruments } = await supabase.from('instruments').select('id, code')
+      for (const inst of instruments ?? []) instrumentById.set(inst.code, inst.id)
+
+      const { error: systemsError } = await supabase.from('score_systems').insert(
+        systems.map((sys, index) => {
+          const instrumentCode = INSTRUMENT_LABEL_TO_CODE[sys.instrument]
+          return {
+            score_page_id: page.id,
+            instrument_id: instrumentCode ? instrumentById.get(instrumentCode) ?? null : null,
+            system_order: index + 1,
+            measure_start: sys.measureStart,
+            measure_count: sys.measureCount,
+            bbox_x: sys.bboxX,
+            bbox_y: sys.bboxY,
+            bbox_w: sys.bboxW,
+            bbox_h: sys.bboxH,
+            is_manually_corrected: true,
+          }
+        })
+      )
+      if (systemsError) {
+        throw new Error(systemsError.message || 'No se pudieron guardar los pentagramas marcados.')
+      }
+
+      router.push(`/${locale}/library`)
+    } catch (e: any) {
+      // Limpieza best-effort de la obra a medias (borra en cascada versiones/archivos)
+      if (createdWorkId) {
+        try {
+          await supabase.from('works').delete().eq('id', createdWorkId)
+        } catch {
+          /* silencioso: la obra huérfana puede limpiarse manualmente */
+        }
+      }
+      setSaveError(e?.message || 'No se pudo guardar la partitura.')
+    } finally {
+      setIsSaving(false)
+    }
   }
+
+  // Revoke del object URL del preview al desmontar (evita fuga de blobs)
+  const previewUrlRef = useRef<string | null>(null)
+  useEffect(() => {
+    previewUrlRef.current = filePreviewUrl
+  }, [filePreviewUrl])
+  useEffect(() => {
+    return () => {
+      const url = previewUrlRef.current
+      if (url && url.startsWith('blob:')) URL.revokeObjectURL(url)
+    }
+  }, [])
 
   return (
     <main className="min-h-screen bg-slate-950 p-6 sm:p-10">
@@ -124,6 +328,13 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
               <CardTitle>1. Información de la Obra</CardTitle>
               <CardDescription>Carga el archivo PDF/Imagen e indica los datos base para el cálculo de highlight.</CardDescription>
             </CardHeader>
+
+            {saveError && (
+              <div role="alert" className="mb-4 flex items-start gap-2 rounded-xl border border-rose-500/40 bg-rose-950/20 px-4 py-3 text-xs font-medium text-rose-300">
+                <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                <span>{saveError}</span>
+              </div>
+            )}
 
             <form
               noValidate
@@ -217,6 +428,53 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                   value={tempo}
                   onChange={(e) => setTempo(Number(e.target.value))}
                   helperText="Rango estándar: 30 a 320 BPM"
+                />
+
+                <div className="space-y-1.5">
+                  <label htmlFor="keySignature" className="block text-sm font-medium text-slate-300">
+                    Tonalidad
+                  </label>
+                  <select
+                    id="keySignature"
+                    value={keySignature}
+                    onChange={(e) => setKeySignature(e.target.value)}
+                    className="w-full h-12 px-4 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/40 text-sm appearance-none"
+                  >
+                    {KEY_SIGNATURES.map((k) => (
+                      <option key={k} value={k}>
+                        {k}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label htmlFor="timeSignature" className="block text-sm font-medium text-slate-300">
+                    Compás
+                  </label>
+                  <select
+                    id="timeSignature"
+                    value={timeSignature}
+                    onChange={(e) => setTimeSignature(e.target.value)}
+                    className="w-full h-12 px-4 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/40 text-sm appearance-none"
+                  >
+                    {TIME_SIGNATURES.map((ts) => (
+                      <option key={ts} value={ts}>
+                        {ts}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <Input
+                  label="Total de Compases"
+                  type="number"
+                  min={1}
+                  max={9999}
+                  required
+                  value={totalMeasures}
+                  onChange={(e) => setTotalMeasures(Number(e.target.value))}
+                  helperText="Compases de la obra completa"
                 />
               </div>
 
@@ -411,13 +669,29 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                   })}
                 </div>
 
+                {saveError && (
+                  <p role="alert" className="flex items-start gap-1.5 text-xs font-medium text-rose-400 mb-2">
+                    <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0 mt-0.5" />
+                    <span>{saveError}</span>
+                  </p>
+                )}
+
                 <div className="pt-4 border-t border-slate-800 flex gap-2">
-                  <Button onClick={() => setStep('meta')} variant="outline" className="w-1/2">
+                  <Button onClick={() => setStep('meta')} variant="outline" className="w-1/2" disabled={isSaving}>
                     Atrás
                   </Button>
-                  <Button onClick={handleSaveScore} variant="primary" className="w-1/2">
-                    <Check className="w-4 h-4 mr-1" />
-                    Guardar
+                  <Button onClick={() => void handleSaveScore()} variant="primary" className="w-1/2" disabled={isSaving}>
+                    {isSaving ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                        Guardando…
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-4 h-4 mr-1" />
+                        Guardar
+                      </>
+                    )}
                   </Button>
                 </div>
               </Card>

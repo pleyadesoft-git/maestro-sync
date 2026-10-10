@@ -7,7 +7,11 @@
   "dependencies": {
     "next-intl": "^4.14.9"
   },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
   "devDependencies": {
+    "@music-flow/config": "workspace:*",
     "typescript": "^5.8.0"
   }
 }

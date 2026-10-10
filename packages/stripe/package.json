@@ -7,7 +7,12 @@
   "dependencies": {
     "stripe": "^23.0.0"
   },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
   "devDependencies": {
+    "@music-flow/config": "workspace:*",
+    "@types/node": "^22.0.0",
     "typescript": "^5.8.0"
   }
 }

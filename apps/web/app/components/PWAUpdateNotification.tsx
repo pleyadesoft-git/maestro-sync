@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback, useRef } from 'react'
 import { Sparkles, RefreshCw, X, ArrowUpCircle } from 'lucide-react'
 
 // Extended window type for Workbox
@@ -8,6 +8,7 @@ declare global {
   interface Window {
     workbox?: {
       addEventListener: (event: string, callback: (event: any) => void) => void
+      removeEventListener?: (event: string, callback: (event: any) => void) => void
       messageSkipWaiting: () => void
       register: () => Promise<ServiceWorkerRegistration | undefined>
     }
@@ -19,15 +20,16 @@ export default function PWAUpdateNotification() {
   const [showUpdate, setShowUpdate] = useState(false)
   const [isUpdating, setIsUpdating] = useState(false)
   const [waitingWorker, setWaitingWorker] = useState<ServiceWorker | null>(null)
+  const controllerListenerRef = useRef<(() => void) | null>(null)
 
   const handleUpdate = useCallback(() => {
     setIsUpdating(true)
 
     // Ensure we reload when the new service worker takes control
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.addEventListener('controllerchange', () => {
-        window.location.reload()
-      })
+    if ('serviceWorker' in navigator && !controllerListenerRef.current) {
+      const onControllerChange = () => window.location.reload()
+      controllerListenerRef.current = onControllerChange
+      navigator.serviceWorker.addEventListener('controllerchange', onControllerChange)
     }
 
     // Trigger skip waiting via Workbox if available
@@ -54,22 +56,28 @@ export default function PWAUpdateNotification() {
       return
     }
 
+    let disposed = false
+    const cleanups: Array<() => void> = []
+
     // 1. Workbox event listener if next-pwa workbox is loaded
     if (window.workbox) {
-      window.workbox.addEventListener('waiting', (event: any) => {
-        if (event?.sw) {
-          setWaitingWorker(event.sw)
-        }
+      const onWaiting = (event: any) => {
+        if (event?.sw) setWaitingWorker(event.sw)
         setShowUpdate(true)
-      })
-
-      window.workbox.addEventListener('controlling', () => {
-        window.location.reload()
+      }
+      const onControlling = () => window.location.reload()
+      window.workbox.addEventListener('waiting', onWaiting)
+      window.workbox.addEventListener('controlling', onControlling)
+      cleanups.push(() => {
+        window.workbox?.removeEventListener?.('waiting', onWaiting)
+        window.workbox?.removeEventListener?.('controlling', onControlling)
       })
     }
 
     // 2. Native ServiceWorker listeners for robust update detection
     navigator.serviceWorker.ready.then((registration) => {
+      if (disposed) return
+
       // If there is already a waiting worker
       if (registration.waiting) {
         setWaitingWorker(registration.waiting)
@@ -77,11 +85,11 @@ export default function PWAUpdateNotification() {
       }
 
       // Detect new service worker installing
-      registration.addEventListener('updatefound', () => {
+      const onUpdateFound = () => {
         const installingWorker = registration.installing
         if (!installingWorker) return
 
-        installingWorker.addEventListener('statechange', () => {
+        const onStateChange = () => {
           if (
             installingWorker.state === 'installed' &&
             navigator.serviceWorker.controller
@@ -90,13 +98,18 @@ export default function PWAUpdateNotification() {
             setWaitingWorker(installingWorker)
             setShowUpdate(true)
           }
-        })
-      })
+        }
+        installingWorker.addEventListener('statechange', onStateChange)
+        cleanups.push(() => installingWorker.removeEventListener('statechange', onStateChange))
+      }
+      registration.addEventListener('updatefound', onUpdateFound)
+      cleanups.push(() => registration.removeEventListener('updatefound', onUpdateFound))
 
       // Periodically check for updates (every 20 minutes)
       const interval = setInterval(() => {
         registration.update().catch(() => {})
       }, 20 * 60 * 1000)
+      cleanups.push(() => clearInterval(interval))
 
       // Check for updates when user returns to the tab/app
       const handleVisibilityChange = () => {
@@ -105,12 +118,18 @@ export default function PWAUpdateNotification() {
         }
       }
       document.addEventListener('visibilitychange', handleVisibilityChange)
-
-      return () => {
-        clearInterval(interval)
-        document.removeEventListener('visibilitychange', handleVisibilityChange)
-      }
+      cleanups.push(() => document.removeEventListener('visibilitychange', handleVisibilityChange))
     })
+
+    return () => {
+      disposed = true
+      for (const cleanup of cleanups.splice(0)) cleanup()
+      if (controllerListenerRef.current) {
+        navigator.serviceWorker.removeEventListener('controllerchange', controllerListenerRef.current)
+        controllerListenerRef.current = null
+      }
+      delete window.__triggerPwaUpdateModal
+    }
   }, [])
 
   if (!showUpdate) {

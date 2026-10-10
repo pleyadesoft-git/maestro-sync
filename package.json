@@ -8,7 +8,8 @@
     "web:dev": "turbo run dev --filter=web",
     "dev:admin": "turbo run dev --filter=admin",
     "admin:dev": "turbo run dev --filter=admin",
-    "lint": "turbo run lint"
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck"
   },
   "devDependencies": {
     "turbo": "^2.11.7",

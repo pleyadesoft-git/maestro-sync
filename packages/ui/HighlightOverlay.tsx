@@ -20,6 +20,8 @@ export function HighlightOverlay({
 }: HighlightOverlayProps) {
   if (!isActive) return null
 
+  const isNearTop = bboxY < 0.08
+
   return (
     <motion.div
       initial={false}
@@ -35,7 +37,11 @@ export function HighlightOverlay({
       className="pointer-events-none z-10 box-border rounded-lg border-2 border-amber-400 bg-amber-400/20 shadow-lg shadow-amber-400/25 ring-4 ring-amber-400/10"
     >
       {label && (
-        <span className="absolute -top-7 left-2 max-w-[calc(100%-0.5rem)] truncate rounded-md bg-amber-500 px-2 py-0.5 text-xs font-bold text-slate-950 shadow-md">
+        <span
+          className={`absolute ${
+            isNearTop ? 'top-1 left-2' : '-top-7 left-2'
+          } max-w-[calc(100%-0.5rem)] truncate rounded-md bg-amber-500 px-2 py-0.5 text-xs font-bold text-slate-950 shadow-md`}
+        >
           {label}
         </span>
       )}

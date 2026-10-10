@@ -1,8 +1,30 @@
 'use client'
 
-import React, { useCallback, useLayoutEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { cn } from './utils'
 import { HighlightOverlay } from './HighlightOverlay'
+
+export interface ScorePageData {
+  id: string
+  pageNumber: number
+  imageUrl?: string | null
+  widthPx?: number | null
+  heightPx?: number | null
+}
+
+export interface ScoreSystemData {
+  id: string
+  scorePageId?: string
+  pageNumber?: number
+  measureStart: number
+  measureCount: number
+  bboxX: number
+  bboxY: number
+  bboxW: number
+  bboxH: number
+  instrument: string
+}
 
 export interface MusicScoreSheetProps {
   className?: string
@@ -15,6 +37,10 @@ export interface MusicScoreSheetProps {
   activeMeasure?: number
   selectedInstrument?: string
   highlightLabel?: string
+  pages?: ScorePageData[]
+  systems?: ScoreSystemData[]
+  activePageNumber?: number
+  onPageChange?: (pageNumber: number) => void
 }
 
 interface NormalizedBBox {
@@ -75,10 +101,47 @@ export function MusicScoreSheet({
   activeMeasure,
   selectedInstrument,
   highlightLabel,
+  pages,
+  systems,
+  activePageNumber,
+  onPageChange,
 }: MusicScoreSheetProps) {
   const stavesHostRef = useRef<HTMLDivElement>(null)
   const systemElsRef = useRef<Array<HTMLDivElement | null>>([])
   const [highlightBox, setHighlightBox] = useState<NormalizedBBox | null>(null)
+  const pageContainerRef = useRef<HTMLDivElement>(null)
+
+  const hasRealPages = Boolean(pages && pages.length > 0 && pages.some((p) => Boolean(p.imageUrl)))
+  const [internalPageNumber, setInternalPageNumber] = useState(1)
+  const realCurrentPageNumber = activePageNumber ?? internalPageNumber
+  const currentPage = pages?.find((p) => p.pageNumber === realCurrentPageNumber) ?? pages?.[0]
+
+  const handlePageChange = (newPage: number) => {
+    if (!pages || newPage < 1 || newPage > pages.length) return
+    setInternalPageNumber(newPage)
+    onPageChange?.(newPage)
+  }
+
+  // Active system from real systems list if provided
+  const activeRealSystem =
+    systems && activeSystemIndex != null && activeSystemIndex >= 0 && activeSystemIndex < systems.length
+      ? systems[activeSystemIndex]
+      : null
+
+  // Ensure active system belongs to the current page if multi-page
+  const isSystemOnCurrentPage =
+    !activeRealSystem ||
+    activeRealSystem.pageNumber == null ||
+    activeRealSystem.pageNumber === currentPage?.pageNumber ||
+    (currentPage && activeRealSystem.scorePageId === currentPage.id)
+
+  const activeSystemOnCurrentPage = isSystemOnCurrentPage ? activeRealSystem : null
+
+  useEffect(() => {
+    if (pageContainerRef.current) {
+      pageContainerRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    }
+  }, [activeSystemIndex, realCurrentPageNumber])
 
   const registerSystem = useCallback((index: number, el: HTMLDivElement | null) => {
     systemElsRef.current[index] = el
@@ -167,11 +230,62 @@ export function MusicScoreSheet({
         </div>
       </div>
 
-      {/* SVG Staves Container — overlay is measured against this box only */}
-      <div
-        ref={stavesHostRef}
-        className="flex-1 min-h-0 w-full relative flex flex-col justify-around py-1"
-      >
+      {hasRealPages ? (
+        <div className="flex-1 min-h-0 w-full relative flex flex-col items-center justify-center overflow-auto p-2 sm:p-4">
+          <div
+            ref={pageContainerRef}
+            className="relative inline-block max-w-full shadow-2xl rounded-lg overflow-hidden border border-slate-800 bg-white"
+          >
+            {/* Real score page rendering */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={currentPage?.imageUrl || ''}
+              alt={`${title} - Página ${currentPage?.pageNumber ?? 1}`}
+              className="block max-w-full max-h-[calc(100vh-220px)] object-contain select-none pointer-events-none"
+            />
+            {activeSystemOnCurrentPage && (
+              <HighlightOverlay
+                bboxX={activeSystemOnCurrentPage.bboxX}
+                bboxY={activeSystemOnCurrentPage.bboxY}
+                bboxW={activeSystemOnCurrentPage.bboxW}
+                bboxH={activeSystemOnCurrentPage.bboxH}
+                label={overlayLabel}
+              />
+            )}
+          </div>
+
+          {pages && pages.length > 1 && (
+            <div className="mt-3 flex items-center gap-3 bg-slate-900/90 border border-slate-800 px-3 py-1.5 rounded-full text-xs text-slate-300 shadow-md shrink-0">
+              <button
+                type="button"
+                onClick={() => handlePageChange(realCurrentPageNumber - 1)}
+                disabled={realCurrentPageNumber <= 1}
+                aria-label="Página anterior"
+                className="p-1 rounded-full hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed text-slate-400 hover:text-amber-400 transition-colors"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <span className="font-mono text-xs">
+                Pág. <strong className="text-amber-400">{realCurrentPageNumber}</strong> / {pages.length}
+              </span>
+              <button
+                type="button"
+                onClick={() => handlePageChange(realCurrentPageNumber + 1)}
+                disabled={realCurrentPageNumber >= pages.length}
+                aria-label="Página siguiente"
+                className="p-1 rounded-full hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed text-slate-400 hover:text-amber-400 transition-colors"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+        </div>
+      ) : (
+        /* SVG Staves Container — fallback cuando no hay imagen rasterizada */
+        <div
+          ref={stavesHostRef}
+          className="flex-1 min-h-0 w-full relative flex flex-col justify-around py-1"
+        >
         {/* System 1: Violín I (The iconic opening motif) */}
         <StaffSystem index={0} register={registerSystem}>
           <svg
@@ -700,7 +814,8 @@ export function MusicScoreSheet({
             label={overlayLabel}
           />
         )}
-      </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -1,7 +1,12 @@
 import Stripe from 'stripe'
 
 export function getStripeServerInstance() {
-  const secretKey = process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder'
+  const secretKey = process.env.STRIPE_SECRET_KEY
+  if (!secretKey) {
+    throw new Error(
+      '[music-flow] Falta STRIPE_SECRET_KEY. Copia .env.example a .env y completa el valor.'
+    )
+  }
   return new Stripe(secretKey, {
     apiVersion: '2026-09-30.endive' as any,
     typescript: true,

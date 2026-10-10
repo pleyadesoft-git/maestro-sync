@@ -8,7 +8,12 @@
     "@music-flow/supabase": "workspace:*",
     "zustand": "^5.0.15"
   },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
   "devDependencies": {
+    "@music-flow/config": "workspace:*",
+    "@types/node": "^22.0.0",
     "typescript": "^5.8.0"
   }
 }
