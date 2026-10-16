@@ -548,6 +548,7 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                               min={1}
                               required
                               value={sys.measureStart}
+                              onInvalid={(e) => e.preventDefault()}
                               onChange={(e) => {
                                 const val = Math.max(1, Number(e.target.value))
                                 setSystems(systems.map((s) => (s.id === sys.id ? { ...s, measureStart: val } : s)))
@@ -562,6 +563,7 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                               min={1}
                               required
                               value={sys.measureCount}
+                              onInvalid={(e) => e.preventDefault()}
                               onChange={(e) => {
                                 const val = Math.max(1, Number(e.target.value))
                                 setSystems(systems.map((s) => (s.id === sys.id ? { ...s, measureCount: val } : s)))

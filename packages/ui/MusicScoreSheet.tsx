@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { cn } from './utils'
 import { HighlightOverlay } from './HighlightOverlay'
@@ -164,28 +164,49 @@ export function MusicScoreSheet({
     const rowRect = row.getBoundingClientRect()
     if (hostRect.width < 1 || hostRect.height < 1) return
 
-    setHighlightBox(staffCenteredBox(rowRect, hostRect))
+    const nextBox = staffCenteredBox(rowRect, hostRect)
+    setHighlightBox((prev) => {
+      if (
+        prev &&
+        Math.abs(prev.bboxX - nextBox.bboxX) < 0.001 &&
+        Math.abs(prev.bboxY - nextBox.bboxY) < 0.001 &&
+        Math.abs(prev.bboxW - nextBox.bboxW) < 0.001 &&
+        Math.abs(prev.bboxH - nextBox.bboxH) < 0.001
+      ) {
+        return prev
+      }
+      return nextBox
+    })
   }, [activeSystemIndex])
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     measureActiveStaff()
 
     const host = stavesHostRef.current
     if (!host || typeof ResizeObserver === 'undefined') return
 
-    const observer = new ResizeObserver(() => measureActiveStaff())
+    let rafId: number | null = null
+    const scheduleMeasure = () => {
+      if (rafId !== null) cancelAnimationFrame(rafId)
+      rafId = requestAnimationFrame(() => {
+        measureActiveStaff()
+      })
+    }
+
+    const observer = new ResizeObserver(() => scheduleMeasure())
     observer.observe(host)
     systemElsRef.current.forEach((el) => {
       if (el) observer.observe(el)
     })
 
-    window.addEventListener('resize', measureActiveStaff)
-    window.addEventListener('orientationchange', measureActiveStaff)
+    window.addEventListener('resize', scheduleMeasure)
+    window.addEventListener('orientationchange', scheduleMeasure)
 
     return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId)
       observer.disconnect()
-      window.removeEventListener('resize', measureActiveStaff)
-      window.removeEventListener('orientationchange', measureActiveStaff)
+      window.removeEventListener('resize', scheduleMeasure)
+      window.removeEventListener('orientationchange', scheduleMeasure)
     }
   }, [measureActiveStaff])
 
