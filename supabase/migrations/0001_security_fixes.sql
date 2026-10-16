@@ -371,3 +371,52 @@ insert into public.plans (code, plan_type, seats_included, billing_interval, is_
   ('individual_monthly', 'individual', 1, 'month', true),
   ('org_annual', 'organization', 10, 'year', true)
 on conflict (code) do nothing;
+
+-- ---------------------------------------------------------------------
+-- 11. Bucket privado y políticas de Supabase Storage para "scores"
+-- ---------------------------------------------------------------------
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('scores', 'scores', false, 52428800, null)
+on conflict (id) do update set
+  public = false,
+  file_size_limit = 52428800;
+
+alter table storage.objects enable row level security;
+
+drop policy if exists "scores_storage_select" on storage.objects;
+create policy "scores_storage_select" on storage.objects
+  for select using (
+    bucket_id = 'scores'
+    and (
+      auth.uid()::text = (storage.foldername(name))[1]
+      or exists (
+        select 1 from public.scores sc
+        join public.sessions s on s.work_version_id = sc.work_version_id
+        join public.session_participants sp on sp.session_id = s.id and sp.user_id = auth.uid()
+        where sc.file_path = storage.objects.name
+      )
+    )
+  );
+
+drop policy if exists "scores_storage_insert" on storage.objects;
+create policy "scores_storage_insert" on storage.objects
+  for insert with check (
+    bucket_id = 'scores'
+    and auth.role() = 'authenticated'
+    and auth.uid()::text = (storage.foldername(name))[1]
+  );
+
+drop policy if exists "scores_storage_update" on storage.objects;
+create policy "scores_storage_update" on storage.objects
+  for update using (
+    bucket_id = 'scores'
+    and auth.uid()::text = (storage.foldername(name))[1]
+  );
+
+drop policy if exists "scores_storage_delete" on storage.objects;
+create policy "scores_storage_delete" on storage.objects
+  for delete using (
+    bucket_id = 'scores'
+    and auth.uid()::text = (storage.foldername(name))[1]
+  );
+

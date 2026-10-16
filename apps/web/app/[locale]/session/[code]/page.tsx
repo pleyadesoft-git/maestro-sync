@@ -233,17 +233,38 @@ function SessionContent({ params }: { params: Promise<{ locale: string; code: st
           throw new Error('Inicia sesión para entrar a la sala de ensayo.')
         }
 
-        const { data: sessionRow, error: joinError } = await supabase.rpc('join_session', {
-          p_room_code: code,
-        })
-        if (joinError || !sessionRow) {
-          const msg = joinError?.message || ''
-          throw new Error(
-            msg.includes('session_not_found') || !sessionRow
-              ? `La sala «${code.toUpperCase()}» no existe o ya finalizó.`
-              : `No se pudo unir a la sala: ${msg}`
-          )
+        let sessionRow: any = null
+        try {
+          const { data, error } = await supabase.rpc('join_session', {
+            p_room_code: code,
+          })
+          if (!error && data) {
+            sessionRow = data
+          }
+        } catch {
+          /* fallback a endpoint */
         }
+
+        if (!sessionRow) {
+          const { data: sessionData } = await supabase.auth.getSession()
+          const token = sessionData.session?.access_token
+          if (!token) throw new Error('Inicia sesión para entrar a la sala de ensayo.')
+
+          const res = await fetch('/api/sessions/join', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ roomCode: code }),
+          })
+          const json = await res.json()
+          if (!res.ok || !json.ok || !json.session) {
+            throw new Error(json.error || `La sala «${code.toUpperCase()}» no existe o ya finalizó.`)
+          }
+          sessionRow = json.session
+        }
+
 
         if (cancelled) return
         sessionIdRef.current = sessionRow.id
@@ -331,10 +352,35 @@ function SessionContent({ params }: { params: Promise<{ locale: string; code: st
                     .from('scores')
                     .createSignedUrl(p.image_path, 7200)
                   imageUrl = signed?.signedUrl ?? null
+
+                  if (!imageUrl) {
+                    try {
+                      const { data: sessionData } = await supabase.auth.getSession()
+                      const token = sessionData.session?.access_token
+                      if (token) {
+                        const urlRes = await fetch('/api/scores/signed-url', {
+                          method: 'POST',
+                          headers: {
+                            'Content-Type': 'application/json',
+                            Authorization: `Bearer ${token}`,
+                          },
+                          body: JSON.stringify({ filePath: p.image_path }),
+                        })
+                        const urlJson = await urlRes.json()
+                        if (urlJson.ok && urlJson.signedUrl) {
+                          imageUrl = urlJson.signedUrl
+                        }
+                      }
+                    } catch {
+                      /* fallback */
+                    }
+                  }
+
                   if (!imageUrl) {
                     const { data: pub } = supabase.storage.from('scores').getPublicUrl(p.image_path)
                     imageUrl = pub?.publicUrl ?? null
                   }
+
                 }
               }
 

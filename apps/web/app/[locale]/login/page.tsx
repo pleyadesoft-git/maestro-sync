@@ -40,14 +40,35 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
 
   const finishLogin = async (userId: string, userEmail: string) => {
     const supabase = createBrowserClient()
-    const { data: profile } = await supabase
+    let { data: profile } = await supabase
       .from('profiles')
       .select('*')
       .eq('id', userId)
       .maybeSingle()
+
+    if (!profile) {
+      try {
+        const { data: sessionData } = await supabase.auth.getSession()
+        const token = sessionData.session?.access_token
+        if (token) {
+          const res = await fetch('/api/auth/profile', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}` },
+          })
+          const json = await res.json()
+          if (json.ok && json.profile) {
+            profile = json.profile
+          }
+        }
+      } catch {
+        /* fallback silencioso */
+      }
+    }
+
     setAuth({ id: userId, email: userEmail }, profile)
     router.push(`/${locale}/library`)
   }
+
 
   const handleEmailAuth = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()

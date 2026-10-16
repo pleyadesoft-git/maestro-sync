@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Button, Card, CardHeader, CardTitle, CardDescription } from '@music-flow/ui'
 import { createBrowserClient } from '@music-flow/supabase'
-import { Search, Plus, Play, Filter, BookOpen, Clock, ArrowLeft, AlertCircle, Loader2, LogIn, FileText } from 'lucide-react'
+import { Search, Plus, Play, Filter, BookOpen, Clock, ArrowLeft, AlertCircle, Loader2, LogIn, FileText, Trash2 } from 'lucide-react'
 import { createRoomForVersion, fetchLatestVersion } from '../../../lib/rooms'
 
 interface LibraryWork {
@@ -34,7 +34,9 @@ export default function LibraryPage({ params }: { params: Promise<{ locale: stri
   const [reloadKey, setReloadKey] = useState(0)
   const [works, setWorks] = useState<LibraryWork[]>([])
   const [startingWorkId, setStartingWorkId] = useState<string | null>(null)
+  const [deletingWorkId, setDeletingWorkId] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+
 
   useEffect(() => {
     let cancelled = false
@@ -114,7 +116,25 @@ export default function LibraryPage({ params }: { params: Promise<{ locale: stri
     }
   }
 
+  const handleDeleteWork = async (workId: string) => {
+    if (!window.confirm('¿Estás seguro de que deseas eliminar esta obra de tu biblioteca?')) {
+      return
+    }
+    setActionError(null)
+    setDeletingWorkId(workId)
+    try {
+      const { error } = await supabase.from('works').delete().eq('id', workId)
+      if (error) throw new Error(error.message)
+      setWorks((prev) => prev.filter((w) => w.id !== workId))
+    } catch (e: any) {
+      setActionError(e?.message || 'No se pudo eliminar la obra.')
+    } finally {
+      setDeletingWorkId(null)
+    }
+  }
+
   return (
+
     <main className="min-h-screen bg-slate-950 p-6 sm:p-10">
       <div className="max-w-6xl mx-auto">
         {/* Top Header */}
@@ -275,20 +295,36 @@ export default function LibraryPage({ params }: { params: Promise<{ locale: stri
                         <span className="text-xs text-slate-500 font-mono">
                           {work.total_measures ? `${work.total_measures} compases` : 'Compases sin definir'}
                         </span>
-                        <Button
-                          onClick={() => void handleStartSessionWithWork(work)}
-                          variant="primary"
-                          size="sm"
-                          disabled={startingWorkId === work.id}
-                        >
-                          {startingWorkId === work.id ? (
-                            <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
-                          ) : (
-                            <Play className="w-3.5 h-3.5 mr-1" />
-                          )}
-                          Iniciar Sala
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void handleDeleteWork(work.id)}
+                            disabled={deletingWorkId === work.id}
+                            title="Eliminar obra"
+                            className="p-2 rounded-xl text-slate-500 hover:text-rose-400 hover:bg-rose-950/20 transition-colors"
+                          >
+                            {deletingWorkId === work.id ? (
+                              <Loader2 className="w-4 h-4 animate-spin text-rose-400" />
+                            ) : (
+                              <Trash2 className="w-4 h-4" />
+                            )}
+                          </button>
+                          <Button
+                            onClick={() => void handleStartSessionWithWork(work)}
+                            variant="primary"
+                            size="sm"
+                            disabled={startingWorkId === work.id}
+                          >
+                            {startingWorkId === work.id ? (
+                              <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
+                            ) : (
+                              <Play className="w-3.5 h-3.5 mr-1" />
+                            )}
+                            Iniciar Sala
+                          </Button>
+                        </div>
                       </div>
+
                     </Card>
                   ))}
                 </div>

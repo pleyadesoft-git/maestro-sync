@@ -55,7 +55,17 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
   const [viewMode, setViewMode] = useState<'uploaded' | 'digital'>('uploaded')
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [currentUser, setCurrentUser] = useState<any | null>(null)
+  const [authChecked, setAuthChecked] = useState(false)
   const fileRef = useRef<File | null>(null)
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      setCurrentUser(data.user)
+      setAuthChecked(true)
+    })
+  }, [supabase])
+
 
   // Manual marking state - aligned with staves
   const [systems, setSystems] = useState<SystemMark[]>([
@@ -151,149 +161,47 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
     }
 
     setIsSaving(true)
-    let createdWorkId: string | null = null
     try {
-      const { data: authData } = await supabase.auth.getUser()
-      const user = authData.user
-      if (!user) {
-        router.push(`/${locale}/login`)
+      const { data: sessionData } = await supabase.auth.getSession()
+      const token = sessionData.session?.access_token
+      if (!token) {
+        setSaveError('Debes iniciar sesión para guardar la partitura en tu biblioteca.')
         return
       }
 
-      // Límite del plan gratuito (2 partituras) salvo suscripción activa
-      const { count: scoreCount } = await supabase
-        .from('scores')
-        .select('id', { count: 'exact', head: true })
-        .eq('owner_id', user.id)
-      if ((scoreCount ?? 0) >= FREE_SCORE_LIMIT) {
-        const { data: subs } = await supabase
-          .from('subscriptions')
-          .select('status, current_period_end')
-          .eq('owner_user_id', user.id)
-          .in('status', ['active', 'trialing'])
-        const hasPaidPlan = (subs ?? []).some(
-          (s) => !s.current_period_end || Date.parse(s.current_period_end) > Date.now()
-        )
-        if (!hasPaidPlan) {
-          setSaveError(
-            `El plan gratuito permite hasta ${FREE_SCORE_LIMIT} partituras. Elimina una obra existente o actualiza tu plan para subir más.`
-          )
-          return
-        }
-      }
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('title', title.trim())
+      formData.append('composer', composer.trim())
+      if (catalogRef.trim()) formData.append('catalogRef', catalogRef.trim())
+      formData.append('keySignature', keySignature)
+      formData.append('timeSignature', timeSignature)
+      formData.append('tempo', String(tempo))
+      formData.append('totalMeasures', String(totalMeasures))
+      formData.append('systems', JSON.stringify(systems))
 
-      // 1) Archivo al bucket privado "scores" de Supabase Storage
-      const rawExtension = (file.name.split('.').pop() || '').replace(/[^a-z0-9]/gi, '').toLowerCase()
-      const extension = rawExtension || (file.type === 'application/pdf' ? 'pdf' : 'img')
-      const slug =
-        title
-          .trim()
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/gi, '-')
-          .replace(/^-+|-+$/g, '')
-          .slice(0, 60) || 'score'
-      const filePath = `${user.id}/${crypto.randomUUID()}/${slug}.${extension}`
-      const { error: uploadError } = await supabase.storage
-        .from('scores')
-        .upload(filePath, file, { contentType: file.type || undefined, upsert: false })
-      if (uploadError) {
-        throw new Error(
-          `No se pudo subir el archivo (${uploadError.message}). Verifica que exista el bucket privado «scores» en Supabase Storage.`
-        )
-      }
+      const res = await fetch('/api/scores/upload', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
+      })
 
-      // 2) Cadena de metadatos: works → work_versions → scores → score_pages → score_systems
-      const { data: work, error: workError } = await supabase
-        .from('works')
-        .insert({
-          owner_id: user.id,
-          title: title.trim(),
-          composer: composer.trim(),
-          catalog_reference: catalogRef.trim() || null,
-          key_signature: keySignature,
-          time_signature: timeSignature,
-          default_tempo_bpm: Math.min(320, Math.max(30, Math.round(tempo))),
-          total_measures: Math.max(1, Math.round(totalMeasures)),
-        })
-        .select('id')
-        .single()
-      if (workError || !work) throw new Error(workError?.message || 'No se pudo crear la obra.')
-      createdWorkId = work.id
-
-      const { data: version, error: versionError } = await supabase
-        .from('work_versions')
-        .insert({ work_id: work.id, version_name: 'Original' })
-        .select('id')
-        .single()
-      if (versionError || !version) {
-        throw new Error(versionError?.message || 'No se pudo crear la versión de la obra.')
-      }
-
-      const { data: score, error: scoreError } = await supabase
-        .from('scores')
-        .insert({
-          work_version_id: version.id,
-          owner_id: user.id,
-          file_path: filePath,
-          file_type: file.type === 'application/pdf' ? 'pdf' : 'image',
-          page_count: 1,
-          status: 'ready',
-          omr_engine: 'manual',
-        })
-        .select('id')
-        .single()
-      if (scoreError || !score) {
-        throw new Error(scoreError?.message || 'No se pudo registrar el archivo de la partitura.')
-      }
-
-      const { data: page, error: pageError } = await supabase
-        .from('score_pages')
-        .insert({ score_id: score.id, page_number: 1, image_path: filePath })
-        .select('id')
-        .single()
-      if (pageError || !page) throw new Error(pageError?.message || 'No se pudo registrar la página.')
-
-      // Vínculo con el catálogo de instrumentos (mejor esfuerzo)
-      const instrumentById = new Map<string, string>()
-      const { data: instruments } = await supabase.from('instruments').select('id, code')
-      for (const inst of instruments ?? []) instrumentById.set(inst.code, inst.id)
-
-      const { error: systemsError } = await supabase.from('score_systems').insert(
-        systems.map((sys, index) => {
-          const instrumentCode = INSTRUMENT_LABEL_TO_CODE[sys.instrument]
-          return {
-            score_page_id: page.id,
-            instrument_id: instrumentCode ? instrumentById.get(instrumentCode) ?? null : null,
-            system_order: index + 1,
-            measure_start: sys.measureStart,
-            measure_count: sys.measureCount,
-            bbox_x: sys.bboxX,
-            bbox_y: sys.bboxY,
-            bbox_w: sys.bboxW,
-            bbox_h: sys.bboxH,
-            is_manually_corrected: true,
-          }
-        })
-      )
-      if (systemsError) {
-        throw new Error(systemsError.message || 'No se pudieron guardar los pentagramas marcados.')
+      const json = await res.json()
+      if (!res.ok || !json.ok) {
+        throw new Error(json.error || 'No se pudo guardar la partitura.')
       }
 
       router.push(`/${locale}/library`)
     } catch (e: any) {
-      // Limpieza best-effort de la obra a medias (borra en cascada versiones/archivos)
-      if (createdWorkId) {
-        try {
-          await supabase.from('works').delete().eq('id', createdWorkId)
-        } catch {
-          /* silencioso: la obra huérfana puede limpiarse manualmente */
-        }
-      }
       setSaveError(e?.message || 'No se pudo guardar la partitura.')
     } finally {
       setIsSaving(false)
     }
   }
+
+
 
   // Revoke del object URL del preview al desmontar (evita fuga de blobs)
   const previewUrlRef = useRef<string | null>(null)
@@ -329,12 +237,37 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
               <CardDescription>Carga el archivo PDF/Imagen e indica los datos base para el cálculo de highlight.</CardDescription>
             </CardHeader>
 
+            {authChecked && !currentUser && (
+              <div className="mb-6 p-4 rounded-2xl bg-amber-950/20 border border-amber-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-amber-200">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-xl bg-amber-500/10 text-amber-400">
+                    <AlertCircle className="w-5 h-5 shrink-0" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold">Inicia sesión para guardar tu obra</p>
+                    <p className="text-xs text-amber-400/80">
+                      Puedes preparar la partitura ahora, pero necesitarás iniciar sesión para guardarla en tu biblioteca.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Link
+                    href={`/${locale}/login`}
+                    className="px-3.5 py-1.5 rounded-xl bg-amber-500 text-slate-950 font-bold text-xs hover:bg-amber-400 transition-colors"
+                  >
+                    Iniciar Sesión
+                  </Link>
+                </div>
+              </div>
+            )}
+
             {saveError && (
               <div role="alert" className="mb-4 flex items-start gap-2 rounded-xl border border-rose-500/40 bg-rose-950/20 px-4 py-3 text-xs font-medium text-rose-300">
                 <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
                 <span>{saveError}</span>
               </div>
             )}
+
 
             <form
               noValidate

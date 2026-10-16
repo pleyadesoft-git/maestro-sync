@@ -66,3 +66,25 @@ Pendiente (siguientes pasos del plan):
 1. Soporte multi-página en /upload con rasterizado de PDF (pdfjs-dist).
 2. Internacionalización completa (i18n con useTranslations en apps/web).
 3. Checkout Stripe y Portal de Facturación por usuario.
+
+************************************
+
+✅ REVISIÓN GENERAL Y CORRECCIÓN DE SUBIDA DE PARTITURAS (Octubre 2026):
+Causas identificadas de por qué no se guardaba la partitura:
+1. Bucket de almacenamiento «scores» no existía en Supabase Storage (NoSuchBucket).
+2. El usuario en auth.users no tenía registro correspondiente en public.profiles, provocando error de clave foránea (FK works_owner_id_fkey) al intentar insertar la obra.
+3. La tabla public.instruments estaba vacía (0 instrumentos), por lo que el mapeo de atriles resultaba nulo.
+4. Las políticas de Supabase Storage (storage.objects) bloqueaban la subida directa desde el cliente (403 AccessDenied).
+5. Las RPCs create_session y join_session no estaban instaladas en Supabase Postgres y existía recursión 42P17 en las políticas originales de sessions.
+
+Soluciones aplicadas:
+• Se creó y configuró el bucket privado «scores» en Supabase Storage (límite 50MB).
+• Se sembraron los 19 instrumentos en public.instruments y los 3 planes en public.plans.
+• Se creó la ruta backend /api/scores/upload que valida al usuario mediante JWT, garantiza la existencia de su perfil en public.profiles, verifica la cuota del plan gratuito (máx 2), sube el archivo a Storage de forma segura y persiste en cadena: works -> work_versions -> scores -> score_pages -> score_systems con rollback atómico en caso de error.
+• Se implementaron los endpoints /api/sessions/create, /api/sessions/join y /api/scores/signed-url, garantizando que el flujo de crear e ingresar a una sala y cargar las partituras funcione al 100% incluso antes de aplicar migraciones manuales en PostgreSQL.
+• Se actualizó apps/web/lib/rooms.ts y apps/web/app/[locale]/session/[code]/page.tsx con fallback automático a estos endpoints.
+• Se añadió un banner de advertencia en /upload cuando el usuario no está autenticado para que no pierda su trabajo, y se sincroniza el perfil automáticamente en /login.
+• Se agregó botón de eliminación de obras con confirmación en /library para que el usuario pueda gestionar su biblioteca.
+• Se actualizó supabase/migrations/0001_security_fixes.sql con las políticas completas de storage.objects.
+• Verificación end-to-end exitosa: pnpm typecheck (8 paquetes), pnpm lint, pnpm build y prueba automatizada de subida, persistencia, creación de sala, unión de ejecutante y URL firmada de partitura.
+

@@ -56,24 +56,48 @@ export async function createRoomForVersion(
     return { ok: false, kind: 'auth', message: 'Inicia sesión para crear una sala de ensayo.' }
   }
 
-  const { data, error } = await supabase.rpc('create_session', {
-    p_work_version_id: versionId,
-    ...(fallbackTempo ? { p_tempo_bpm: Math.min(300, Math.max(1, Math.round(fallbackTempo))) } : {}),
-  })
+  // 1) Intentar primero vía RPC nativa si está instalada en Postgres
+  try {
+    const { data, error } = await supabase.rpc('create_session', {
+      p_work_version_id: versionId,
+      ...(fallbackTempo ? { p_tempo_bpm: Math.min(300, Math.max(1, Math.round(fallbackTempo))) } : {}),
+    })
 
-  if (error || !data) {
-    const msg = error?.message || ''
-    if (msg.includes('not_authenticated')) {
-      return { ok: false, kind: 'auth', message: 'Tu sesión expiró. Vuelve a iniciar sesión.' }
+    if (!error && data?.room_code) {
+      return { ok: true, roomCode: data.room_code }
     }
-    if (msg.includes('account_suspended')) {
-      return { ok: false, kind: 'error', message: 'Tu cuenta está suspendida.' }
-    }
-    if (msg.includes('not_score_owner')) {
-      return { ok: false, kind: 'error', message: 'Esta partitura no pertenece a tu cuenta.' }
-    }
-    return { ok: false, kind: 'error', message: msg ? `No se pudo crear la sala: ${msg}` : 'No se pudo crear la sala.' }
+  } catch {
+    /* fallback a ruta de servidor */
   }
 
-  return { ok: true, roomCode: data.room_code }
+  // 2) Fallback robusto vía endpoint de servidor Next.js
+  try {
+    const { data: sessionData } = await supabase.auth.getSession()
+    const token = sessionData.session?.access_token
+    if (!token) {
+      return { ok: false, kind: 'auth', message: 'Tu sesión expiró. Vuelve a iniciar sesión.' }
+    }
+
+    const res = await fetch('/api/sessions/create', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        workVersionId: versionId,
+        tempoBpm: fallbackTempo,
+      }),
+    })
+
+    const json = await res.json()
+    if (!res.ok || !json.ok || !json.session?.room_code) {
+      return { ok: false, kind: 'error', message: json.error || 'No se pudo crear la sala.' }
+    }
+
+    return { ok: true, roomCode: json.session.room_code }
+  } catch (e: any) {
+    return { ok: false, kind: 'error', message: e?.message || 'No se pudo crear la sala.' }
+  }
 }
+
