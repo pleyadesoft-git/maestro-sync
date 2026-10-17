@@ -48,10 +48,14 @@ export async function POST(req: NextRequest) {
 
     const { rpID, origin } = getWebAuthnConfig(req)
 
+    const expectedOrigins = Array.from(
+      new Set([origin, 'http://localhost:3002', 'https://localhost:3002'])
+    )
+
     const verification = await verifyRegistrationResponse({
       response,
       expectedChallenge: challengeData.challenge,
-      expectedOrigin: origin,
+      expectedOrigin: expectedOrigins,
       expectedRPID: rpID,
       requireUserVerification: true,
     })

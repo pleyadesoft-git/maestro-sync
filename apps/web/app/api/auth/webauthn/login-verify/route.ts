@@ -87,10 +87,14 @@ export async function POST(req: NextRequest) {
       Buffer.from(targetPasskey.publicKey, 'base64url')
     )
 
+    const expectedOrigins = Array.from(
+      new Set([origin, 'http://localhost:3002', 'https://localhost:3002'])
+    )
+
     const verification = await verifyAuthenticationResponse({
       response,
       expectedChallenge: challengeData.challenge,
-      expectedOrigin: origin,
+      expectedOrigin: expectedOrigins,
       expectedRPID: rpID,
       credential: {
         id: targetPasskey.id,
