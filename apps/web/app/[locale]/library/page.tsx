@@ -5,8 +5,9 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Button, Card, CardHeader, CardTitle, CardDescription } from '@music-flow/ui'
 import { createBrowserClient } from '@music-flow/supabase'
-import { Search, Plus, Play, Filter, BookOpen, Clock, ArrowLeft, AlertCircle, Loader2, LogIn, FileText, Trash2 } from 'lucide-react'
+import { Search, Plus, Play, Filter, BookOpen, Clock, ArrowLeft, AlertCircle, Loader2, LogIn, FileText, Trash2, Fingerprint, CheckCircle2 } from 'lucide-react'
 import { createRoomForVersion, fetchLatestVersion } from '../../../lib/rooms'
+import { performWebAuthnRegister, isWebAuthnSupported } from '../../../lib/webauthn-client'
 
 interface LibraryWork {
   id: string
@@ -36,7 +37,8 @@ export default function LibraryPage({ params }: { params: Promise<{ locale: stri
   const [startingWorkId, setStartingWorkId] = useState<string | null>(null)
   const [deletingWorkId, setDeletingWorkId] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
-
+  const [passkeyStatus, setPasskeyStatus] = useState<string | null>(null)
+  const [passkeyLoading, setPasskeyLoading] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -133,6 +135,41 @@ export default function LibraryPage({ params }: { params: Promise<{ locale: stri
     }
   }
 
+  const handleLinkDevicePasskey = async () => {
+    setActionError(null)
+    setPasskeyStatus(null)
+    setPasskeyLoading(true)
+
+    try {
+      const { data: authData } = await supabase.auth.getUser()
+      if (!authData.user || !authData.user.email) {
+        setActionError('Debes iniciar sesión para vincular una Passkey a tu cuenta.')
+        return
+      }
+
+      const res = await performWebAuthnRegister({
+        email: authData.user.email,
+        fullName: authData.user.user_metadata?.full_name,
+      })
+
+      if (res.cancelled) {
+        return
+      }
+
+      if (!res.ok) {
+        setActionError(res.error || 'No se pudo vincular la Passkey biométrica.')
+        return
+      }
+
+      setPasskeyStatus('¡Face ID / Touch ID vinculado con éxito a este dispositivo!')
+      setTimeout(() => setPasskeyStatus(null), 5000)
+    } catch (e: any) {
+      setActionError(e?.message || 'Error al vincular Passkey.')
+    } finally {
+      setPasskeyLoading(false)
+    }
+  }
+
   return (
 
     <main className="min-h-screen bg-slate-950 p-6 sm:p-10">
@@ -152,13 +189,36 @@ export default function LibraryPage({ params }: { params: Promise<{ locale: stri
             </div>
           </div>
 
-          <Button asChild variant="primary" size="md">
-            <Link href={`/${locale}/upload`}>
-              <Plus className="w-4 h-4 mr-1.5" />
-              Subir Nueva Partitura
-            </Link>
-          </Button>
+          <div className="flex items-center gap-2.5 flex-wrap">
+            {!isAnon && phase === 'ready' && isWebAuthnSupported() && (
+              <Button
+                type="button"
+                variant="secondary"
+                size="md"
+                onClick={handleLinkDevicePasskey}
+                disabled={passkeyLoading}
+                className="border-slate-800 hover:border-amber-500/40 text-xs sm:text-sm"
+              >
+                <Fingerprint className="w-4 h-4 mr-1.5 text-amber-400" />
+                <span>{passkeyLoading ? 'Activando…' : 'Vincular Face ID / Touch ID'}</span>
+              </Button>
+            )}
+
+            <Button asChild variant="primary" size="md">
+              <Link href={`/${locale}/upload`}>
+                <Plus className="w-4 h-4 mr-1.5" />
+                Subir Nueva Partitura
+              </Link>
+            </Button>
+          </div>
         </div>
+
+        {passkeyStatus && (
+          <div className="mb-6 flex items-center gap-2 rounded-xl border border-emerald-500/40 bg-emerald-950/20 px-4 py-3 text-sm text-emerald-300">
+            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+            <span>{passkeyStatus}</span>
+          </div>
+        )}
 
         {actionError && (
           <div className="mb-6 flex items-start gap-2 rounded-xl border border-rose-500/40 bg-rose-950/20 px-4 py-3 text-sm text-rose-300">

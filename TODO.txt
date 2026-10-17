@@ -88,3 +88,22 @@ Soluciones aplicadas:
 • Se actualizó supabase/migrations/0001_security_fixes.sql con las políticas completas de storage.objects.
 • Verificación end-to-end exitosa: pnpm typecheck (8 paquetes), pnpm lint, pnpm build y prueba automatizada de subida, persistencia, creación de sala, unión de ejecutante y URL firmada de partitura.
 
+************************************
+
+✅ REVISIÓN DE REGISTRO, CORREO DE CONFIRMACIÓN Y WEBAUTHN (Octubre 2026):
+1. Diagnóstico y corrección del correo de confirmación:
+   • Causa identificada #1: Al registrar un usuario con un correo preexistente (ej. operez2000@gmail.com), Supabase Auth oculta la colisión devolviendo data.user con identities: [] y sin error (protección contra enumeración). La UI anterior mostraba erróneamente «Cuenta creada. Revisa tu correo...», cuando en realidad Supabase nunca envía correos a usuarios ya registrados.
+   • Causa identificada #2: signUp no enviaba emailRedirectTo, provocando fallos al verificar el token en enlaces redirigidos a puertos o dominios locales incorrectos.
+   • Solución aplicada: Detección estricta de usuarios duplicados (identities: []) con aviso inmediato y cambio a modo login; inclusión de emailRedirectTo hacia /auth/confirm?next=/[locale]/library; creación de la pantalla de espera de confirmación con temporizador de reenvío (60s) e instrucciones de spam; creación de la ruta de verificación backend /auth/confirm/route.ts y la página cliente /[locale]/auth/confirm/page.tsx; endpoint seguro /api/auth/resend-confirmation.
+
+2. Implementación de WebAuthn para Registro y Login (Passkeys / Biometría):
+   • Integración completa de @simplewebauthn/browser y @simplewebauthn/server en apps/web.
+   • Endpoints backend:
+     - /api/auth/webauthn/register-options y /api/auth/webauthn/register-verify: orquestan el registro de credenciales FIDO2 (Touch ID / Face ID / Windows Hello), persistiendo la clave pública y metadatos en Supabase Auth y sincronizando public.profiles con email_confirm: true y emisión de sesión sin fricción.
+     - /api/auth/webauthn/login-options y /api/auth/webauthn/login-verify: validan la firma criptográfica y emiten la sesión Supabase directamente al cliente.
+   • Experiencia de Usuario:
+     - Login con Passkey en 1 toque en /login.
+     - Registro directo con Passkey en /login sin necesidad de contraseña ni espera de confirmación por correo (ideal para músicos y atriles).
+     - Botón de vinculación biométrica directa para atriles en la cabecera de /library.
+   • Cumplimiento total de la Regla 9 de AGENTS.md (validación moderna con CSS y estados reactivos, sin popups nativos de HTML).
+   • Verificación 100% verde: pnpm typecheck (8 paquetes), pnpm lint (0 errores), pnpm build (Next.js 16.3 + Turbopack).
