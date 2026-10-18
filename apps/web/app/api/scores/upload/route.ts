@@ -236,12 +236,36 @@ export async function POST(req: NextRequest) {
       throw new Error(scoreError?.message || 'No se pudo registrar la partitura.')
     }
 
+    // Si se envió un preview renderizado en canvas (Data URL) para un PDF, guardarlo como imagen PNG de la página
+    let pageImagePath = uploadedFilePath
+    const renderedPreviewDataUrl = formData.get('renderedPreviewDataUrl') as string | null
+    if (isPdf && renderedPreviewDataUrl && renderedPreviewDataUrl.startsWith('data:image/')) {
+      try {
+        const base64Part = renderedPreviewDataUrl.split(',')[1]
+        if (base64Part) {
+          const imgBuffer = Buffer.from(base64Part, 'base64')
+          const renderedPath = `${user.id}/${crypto.randomUUID()}/${slug}-page-1.png`
+          const { error: pageUploadErr } = await supabase.storage
+            .from('scores')
+            .upload(renderedPath, imgBuffer, {
+              contentType: 'image/png',
+              upsert: true,
+            })
+          if (!pageUploadErr) {
+            pageImagePath = renderedPath
+          }
+        }
+      } catch (err) {
+        console.warn('Error guardando imagen renderizada de PDF:', err)
+      }
+    }
+
     const { data: page, error: pageError } = await supabase
       .from('score_pages')
       .insert({
         score_id: score.id,
         page_number: 1,
-        image_path: uploadedFilePath,
+        image_path: pageImagePath,
       })
       .select('id')
       .single()

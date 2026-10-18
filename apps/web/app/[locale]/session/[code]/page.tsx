@@ -2,9 +2,11 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
+import { useParams } from 'next/navigation'
 import { MusicScoreSheet, type ScorePageData, type ScoreSystemData } from '@music-flow/ui'
 import { usePlaybackStore, useSessionStore } from '@music-flow/stores'
 import { createBrowserClient } from '@music-flow/supabase'
+import { renderPdfToDataUrl } from '@/lib/pdfRenderer'
 import {
   Play,
   Pause,
@@ -71,8 +73,10 @@ const FALLBACK_SYSTEMS: ScoreSystemData[] = [
   { id: 's4', pageNumber: 1, measureStart: 13, measureCount: 4, bboxX: 0.04, bboxY: 0.77, bboxW: 0.94, bboxH: 0.17, instrument: 'Violonchelo' },
 ]
 
-function SessionContent({ params }: { params: Promise<{ locale: string; code: string }> }) {
-  const { locale, code } = React.use(params)
+function SessionContent({ params }: { params?: Promise<{ locale: string; code: string }> }) {
+  const routeParams = useParams<{ locale?: string; code?: string }>()
+  const code = (routeParams?.code ?? '').toUpperCase()
+  const locale = routeParams?.locale ?? 'es'
 
   const supabase = createBrowserClient()
 
@@ -381,6 +385,24 @@ function SessionContent({ params }: { params: Promise<{ locale: string; code: st
                     imageUrl = pub?.publicUrl ?? null
                   }
 
+                }
+              }
+
+              // Si el archivo de la página es PDF, rasterizar la página a imagen PNG usando PDF.js
+              const isPdf =
+                (p.image_path && p.image_path.toLowerCase().endsWith('.pdf')) ||
+                scoreRecord?.file_type === 'pdf'
+
+              if (isPdf && imageUrl) {
+                try {
+                  const rendered = await renderPdfToDataUrl(imageUrl, p.page_number || 1)
+                  if (rendered?.dataUrl) {
+                    imageUrl = rendered.dataUrl
+                    p.width_px = rendered.width
+                    p.height_px = rendered.height
+                  }
+                } catch (pdfErr) {
+                  console.warn('[Session] Error rasterizando página PDF:', pdfErr)
                 }
               }
 
@@ -897,8 +919,21 @@ function SessionContent({ params }: { params: Promise<{ locale: string; code: st
   )
 }
 
+function SessionLoading() {
+  return (
+    <main className="h-dvh bg-slate-950 flex flex-col items-center justify-center gap-4 text-slate-300">
+      <Loader2 className="w-8 h-8 text-amber-400 animate-spin" />
+      <p className="text-sm">Cargando sala…</p>
+    </main>
+  )
+}
+
 export default function SessionPage(props: {
-  params: Promise<{ locale: string; code: string }>
+  params?: Promise<{ locale: string; code: string }>
 }) {
-  return <SessionContent {...props} />
+  return (
+    <React.Suspense fallback={<SessionLoading />}>
+      <SessionContent {...props} />
+    </React.Suspense>
+  )
 }

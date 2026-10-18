@@ -179,6 +179,9 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
       formData.append('tempo', String(tempo))
       formData.append('totalMeasures', String(totalMeasures))
       formData.append('systems', JSON.stringify(systems))
+      if (filePreviewUrl && filePreviewUrl.startsWith('data:image/')) {
+        formData.append('renderedPreviewDataUrl', filePreviewUrl)
+      }
 
       const res = await fetch('/api/scores/upload', {
         method: 'POST',

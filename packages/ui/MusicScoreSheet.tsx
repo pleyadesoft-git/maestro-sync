@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Loader2, AlertCircle } from 'lucide-react'
 import { cn } from './utils'
 import { HighlightOverlay } from './HighlightOverlay'
 
@@ -41,6 +41,8 @@ export interface MusicScoreSheetProps {
   systems?: ScoreSystemData[]
   activePageNumber?: number
   onPageChange?: (pageNumber: number) => void
+  viewMode?: 'facsimile' | 'digital'
+  onViewModeChange?: (mode: 'facsimile' | 'digital') => void
 }
 
 interface NormalizedBBox {
@@ -105,6 +107,8 @@ export function MusicScoreSheet({
   systems,
   activePageNumber,
   onPageChange,
+  viewMode: propViewMode,
+  onViewModeChange,
 }: MusicScoreSheetProps) {
   const stavesHostRef = useRef<HTMLDivElement>(null)
   const systemElsRef = useRef<Array<HTMLDivElement | null>>([])
@@ -112,9 +116,41 @@ export function MusicScoreSheet({
   const pageContainerRef = useRef<HTMLDivElement>(null)
 
   const hasRealPages = Boolean(pages && pages.length > 0 && pages.some((p) => Boolean(p.imageUrl)))
+  const [internalViewMode, setInternalViewMode] = useState<'facsimile' | 'digital'>('facsimile')
+  const currentViewMode = propViewMode ?? internalViewMode
+  const [imageLoading, setImageLoading] = useState(true)
+  const [imageError, setImageError] = useState(false)
+
   const [internalPageNumber, setInternalPageNumber] = useState(1)
   const realCurrentPageNumber = activePageNumber ?? internalPageNumber
   const currentPage = pages?.find((p) => p.pageNumber === realCurrentPageNumber) ?? pages?.[0]
+
+  useEffect(() => {
+    setImageLoading(true)
+    setImageError(false)
+
+    // Timeout de seguridad: si la imagen de la partitura tarda más de 6s o se bloquea,
+    // se conmuta automáticamente al render SVG digital sin dejar al usuario bloqueado.
+    const timer = setTimeout(() => {
+      setImageLoading((prev) => {
+        if (prev) {
+          console.warn('[MusicScoreSheet] Timeout al cargar imagen de partitura, usando notación SVG.')
+          setImageError(true)
+          return false
+        }
+        return false
+      })
+    }, 6000)
+
+    return () => clearTimeout(timer)
+  }, [currentPage?.imageUrl])
+
+  const canShowRealPages = Boolean(
+    hasRealPages &&
+    currentPage?.imageUrl &&
+    !imageError &&
+    currentViewMode === 'facsimile'
+  )
 
   const handlePageChange = (newPage: number) => {
     if (!pages || newPage < 1 || newPage > pages.length) return
@@ -239,32 +275,95 @@ export function MusicScoreSheet({
           </p>
         </div>
 
-        <div className="flex flex-col items-start sm:items-end gap-1 shrink-0">
-          <div className="flex items-center gap-2 bg-slate-900/90 border border-slate-800 px-2.5 py-1 rounded-md text-[10px] sm:text-[11px]">
-            <span className="font-serif italic font-semibold text-amber-400">{tempoText}</span>
-          </div>
-          {selectedInstrument && (
-            <span className="text-[10px] text-slate-400 font-mono">
-              Parte activa: <strong className="text-amber-400">{selectedInstrument}</strong>
-            </span>
+        <div className="flex flex-wrap items-center sm:items-end justify-between sm:justify-end gap-2 shrink-0">
+          {hasRealPages && (
+            <div className="flex items-center gap-1 bg-slate-900/90 border border-slate-800 p-0.5 rounded-lg text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  setInternalViewMode('facsimile')
+                  onViewModeChange?.('facsimile')
+                }}
+                disabled={imageError}
+                className={cn(
+                  'px-2.5 py-1 rounded-md transition-colors font-medium text-[11px] sm:text-xs',
+                  currentViewMode === 'facsimile' && !imageError
+                    ? 'bg-amber-500 text-slate-950 font-bold shadow'
+                    : 'text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed'
+                )}
+              >
+                Facsímil
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setInternalViewMode('digital')
+                  onViewModeChange?.('digital')
+                }}
+                className={cn(
+                  'px-2.5 py-1 rounded-md transition-colors font-medium text-[11px] sm:text-xs',
+                  currentViewMode === 'digital' || imageError
+                    ? 'bg-amber-500 text-slate-950 font-bold shadow'
+                    : 'text-slate-400 hover:text-slate-200'
+                )}
+              >
+                Digital SVG
+              </button>
+            </div>
           )}
+
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 bg-slate-900/90 border border-slate-800 px-2.5 py-1 rounded-md text-[10px] sm:text-[11px]">
+              <span className="font-serif italic font-semibold text-amber-400">{tempoText}</span>
+            </div>
+            {selectedInstrument && (
+              <span className="text-[10px] text-slate-400 font-mono">
+                Parte activa: <strong className="text-amber-400">{selectedInstrument}</strong>
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
-      {hasRealPages ? (
+      {canShowRealPages ? (
         <div className="flex-1 min-h-0 w-full relative flex flex-col items-center justify-center overflow-auto p-2 sm:p-4">
           <div
             ref={pageContainerRef}
             className="relative inline-block max-w-full shadow-2xl rounded-lg overflow-hidden border border-slate-800 bg-white"
+            style={{
+              minHeight: imageLoading ? 420 : undefined,
+              minWidth: imageLoading ? 300 : undefined,
+            }}
           >
+            {imageLoading && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/90 text-amber-400 z-10 p-4">
+                <Loader2 className="w-8 h-8 animate-spin mb-2" />
+                <span className="text-xs font-mono text-slate-300">Cargando partitura...</span>
+              </div>
+            )}
+
             {/* Real score page rendering */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={currentPage?.imageUrl || ''}
               alt={`${title} - Página ${currentPage?.pageNumber ?? 1}`}
-              className="block max-w-full max-h-[calc(100vh-220px)] object-contain select-none pointer-events-none"
+              onLoad={(e) => {
+                setImageLoading(false)
+                const img = e.currentTarget
+                if (img.naturalWidth <= 10 || img.naturalHeight <= 10) {
+                  setImageError(true)
+                }
+              }}
+              onError={() => {
+                setImageLoading(false)
+                setImageError(true)
+              }}
+              className={cn(
+                'block max-w-full max-h-[calc(100vh-220px)] object-contain select-none pointer-events-none transition-opacity duration-200',
+                imageLoading ? 'opacity-0' : 'opacity-100'
+              )}
             />
-            {activeSystemOnCurrentPage && (
+            {!imageLoading && activeSystemOnCurrentPage && (
               <HighlightOverlay
                 bboxX={activeSystemOnCurrentPage.bboxX}
                 bboxY={activeSystemOnCurrentPage.bboxY}
@@ -302,11 +401,17 @@ export function MusicScoreSheet({
           )}
         </div>
       ) : (
-        /* SVG Staves Container — fallback cuando no hay imagen rasterizada */
+        /* SVG Staves Container — fallback cuando no hay imagen rasterizada o se activa modo digital */
         <div
           ref={stavesHostRef}
           className="flex-1 min-h-0 w-full relative flex flex-col justify-around py-1"
         >
+          {imageError && hasRealPages && (
+            <div className="mx-auto mb-1 inline-flex items-center gap-2 bg-amber-950/60 border border-amber-500/30 px-3 py-1 rounded-full text-[11px] text-amber-300">
+              <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span>Mostrando notación digital SVG interactiva</span>
+            </div>
+          )}
         {/* System 1: Violín I (The iconic opening motif) */}
         <StaffSystem index={0} register={registerSystem}>
           <svg
