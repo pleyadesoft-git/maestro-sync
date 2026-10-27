@@ -39,6 +39,37 @@ const INSTRUMENT_LABEL_TO_CODE: Record<string, string> = {
   Todos: 'piano',
 }
 
+function resolveInstrumentCode(name: string): string {
+  if (!name) return 'violin_1'
+  if (INSTRUMENT_LABEL_TO_CODE[name]) return INSTRUMENT_LABEL_TO_CODE[name]
+  const lower = name.toLowerCase().trim()
+  for (const [label, code] of Object.entries(INSTRUMENT_LABEL_TO_CODE)) {
+    if (lower === label.toLowerCase() || lower === code.toLowerCase()) {
+      return code
+    }
+  }
+  if (lower.includes('violin 1') || lower.includes('violín 1') || lower.includes('vln 1') || lower.includes('vln. 1') || lower.includes('violín i') || lower.includes('violin i')) return 'violin_1'
+  if (lower.includes('violin 2') || lower.includes('violín 2') || lower.includes('vln 2') || lower.includes('vln. 2') || lower.includes('violín ii') || lower.includes('violin ii')) return 'violin_2'
+  if (lower.includes('viola') || lower.includes('vla')) return 'viola'
+  if (lower.includes('cello') || lower.includes('violonchelo') || lower.includes('violoncello') || lower.includes('vcl')) return 'cello'
+  if (lower.includes('contrabajo') || lower.includes('contrabass') || lower.includes('double bass') || lower.includes('cb')) return 'contrabass'
+  if (lower.includes('flauta') || lower.includes('flute') || lower.includes('fl')) return 'flute'
+  if (lower.includes('oboe') || lower.includes('ob')) return 'oboe'
+  if (lower.includes('clarinete') || lower.includes('clarinet') || lower.includes('cl')) return 'clarinet'
+  if (lower.includes('fagot') || lower.includes('bassoon') || lower.includes('fg')) return 'bassoon'
+  if (lower.includes('trompeta') || lower.includes('trumpet') || lower.includes('tpt')) return 'trumpet'
+  if (lower.includes('corno') || lower.includes('horn') || lower.includes('hn')) return 'horn'
+  if (lower.includes('trombon') || lower.includes('trombón') || lower.includes('trombone') || lower.includes('tbn')) return 'trombone'
+  if (lower.includes('tuba')) return 'tuba'
+  if (lower.includes('timbal') || lower.includes('timpani') || lower.includes('timp')) return 'timpani'
+  if (lower.includes('piano') || lower.includes('pno')) return 'piano'
+  if (lower.includes('soprano')) return 'soprano'
+  if (lower.includes('alto') || lower.includes('contralto')) return 'alto'
+  if (lower.includes('tenor')) return 'tenor'
+  if (lower.includes('bajo') || lower.includes('bass')) return 'bass'
+  return 'violin_1'
+}
+
 export async function POST(req: NextRequest) {
   let createdWorkId: string | null = null
   let uploadedFilePath: string | null = null
@@ -348,65 +379,70 @@ export async function POST(req: NextRequest) {
         continue
       }
 
-      // Sistemas dentro de esta página
+      // Sistemas dentro de esta página: se guarda cada pentagrama/instrumento individualmente
+      // para que el highlight resalte con precisión milimétrica el pentagrama del ejecutante.
       const systemsList = pageData?.systems || []
       for (const sys of systemsList) {
-        const firstStaff = sys.staves?.[0]
-        const sysPartName = firstStaff?.partName || 'Todos'
-        const sysPartId = partIdByName.get(sysPartName) || (insertedParts?.[0]?.id ?? null)
-        const sysInstCode = INSTRUMENT_LABEL_TO_CODE[sysPartName]
-        const sysInstId = sysInstCode ? instrumentByCode.get(sysInstCode) ?? null : null
+        const stavesList = sys.staves && sys.staves.length > 0 ? sys.staves : [{
+          staffOrder: 1,
+          bboxX: sys.bboxX,
+          bboxY: sys.bboxY,
+          bboxW: sys.bboxW,
+          bboxH: sys.bboxH,
+          partName: 'Todos',
+        }]
 
-        const { data: systemRecord, error: sysErr } = await (supabase as any)
-          .from('score_systems')
-          .insert({
-            score_page_id: pageRecord.id,
-            instrument_id: sysInstId,
-            system_order: sys.systemOrder || 1,
-            measure_start: sys.measureStart || 1,
-            measure_count: sys.measureCount || 4,
-            bbox_x: sys.bboxX,
-            bbox_y: sys.bboxY,
-            bbox_w: sys.bboxW,
-            bbox_h: sys.bboxH,
-            confidence: sys.confidence || 0.8,
-            detection_source: isMusicXml ? 'musicxml' : 'auto',
-            is_manually_corrected: true,
-          })
-          .select('id')
-          .single()
+        for (const [staffIndex, st] of stavesList.entries()) {
+          const staffPartName = st.partName || parsedParts[staffIndex]?.name || 'Todos'
+          const staffPartId = partIdByName.get(staffPartName) || (insertedParts?.[staffIndex]?.id ?? insertedParts?.[0]?.id ?? null)
+          const staffInstCode = resolveInstrumentCode(staffPartName)
+          const staffInstId = staffInstCode ? instrumentByCode.get(staffInstCode) ?? null : null
 
-        if (sysErr || !systemRecord) {
-          console.warn('Error registrando sistema:', sysErr)
-          continue
-        }
+          const { data: systemRecord, error: sysErr } = await (supabase as any)
+            .from('score_systems')
+            .insert({
+              score_page_id: pageRecord.id,
+              instrument_id: staffInstId,
+              system_order: sys.systemOrder || 1,
+              measure_start: sys.measureStart || 1,
+              measure_count: sys.measureCount || 4,
+              bbox_x: st.bboxX ?? sys.bboxX,
+              bbox_y: st.bboxY ?? sys.bboxY,
+              bbox_w: st.bboxW ?? sys.bboxW,
+              bbox_h: st.bboxH ?? sys.bboxH,
+              confidence: sys.confidence || 0.8,
+              detection_source: isMusicXml ? 'musicxml' : 'auto',
+              is_manually_corrected: true,
+            })
+            .select('id')
+            .single()
 
-        // Staves dentro del sistema
-        if (sys.staves && sys.staves.length > 0) {
-          const stavesRows = sys.staves.map((st: any, sIdx: number) => {
-            const pId = (st.partName && partIdByName.get(st.partName)) || sysPartId
-            return {
-              score_system_id: systemRecord.id,
-              part_id: pId,
-              staff_order: st.staffOrder || sIdx + 1,
-              bbox_x: st.bboxX,
-              bbox_y: st.bboxY,
-              bbox_w: st.bboxW,
-              bbox_h: st.bboxH,
-            }
-          })
-          await (supabase as any).from('score_staves').insert(stavesRows)
-        }
+          if (sysErr || !systemRecord) {
+            console.warn('Error registrando sistema/pentagrama:', sysErr)
+            continue
+          }
 
-        // Measures dentro del sistema
-        if (sys.measures && sys.measures.length > 0) {
-          const measuresRows = sys.measures.map((m: any) => ({
+          // Registrar staff en score_staves
+          await (supabase as any).from('score_staves').insert({
             score_system_id: systemRecord.id,
-            measure_number: m.measureNumber,
-            x_start: m.xStart,
-            x_end: m.xEnd,
-          }))
-          await (supabase as any).from('score_measures').insert(measuresRows)
+            part_id: staffPartId,
+            staff_order: st.staffOrder || staffIndex + 1,
+            bbox_x: st.bboxX ?? sys.bboxX,
+            bbox_y: st.bboxY ?? sys.bboxY,
+            bbox_w: st.bboxW ?? sys.bboxW,
+            bbox_h: st.bboxH ?? sys.bboxH,
+          })
+
+          // Measures dentro de este pentagrama
+          if (sys.measures && sys.measures.length > 0) {
+            const measuresRows = sys.measures.map((m: any) => ({
+              score_system_id: systemRecord.id,
+              measure_number: m.measureNumber,
+              x_start: m.xStart,
+              x_end: m.xEnd,
+            }))
+            await (supabase as any).from('score_measures').insert(measuresRows)
+          }
         }
       }
     }

@@ -77,8 +77,13 @@ export function analyzeScore(input: AnalyzeScoreInput): ScoreAnalysisResult {
     ? totalLayoutConf / detectedPages.length
     : 0.4
 
-  // Determinar partes / instrumentación
+  // Determinar partes e instrumentación detectando pentagramas múltiples o nombres de instrumentos
   const parts: DetectedPart[] = []
+  const maxStavesInAnySystem = Math.max(
+    1,
+    ...detectedPages.flatMap((p) => p.systems.map((s) => s.staves.length))
+  )
+
   if (textMeta.detectedInstrumentNames.length > 0) {
     textMeta.detectedInstrumentNames.forEach((name, idx) => {
       parts.push({
@@ -87,6 +92,37 @@ export function analyzeScore(input: AnalyzeScoreInput): ScoreAnalysisResult {
         deskCount: 1,
       })
     })
+
+    // Si hay más pentagramas físicos en el sistema que instrumentos nombrados,
+    // completar los pentagramas restantes con nombres de atril
+    if (parts.length < maxStavesInAnySystem) {
+      for (let s = parts.length + 1; s <= maxStavesInAnySystem; s++) {
+        parts.push({
+          name: `Atril ${s}`,
+          partOrder: s,
+          deskCount: 1,
+        })
+      }
+    }
+  } else if (maxStavesInAnySystem > 1) {
+    // Partitura multi-pentagrama sin texto OCR explícito (ej. escaneo o imagen pura)
+    if (maxStavesInAnySystem === 2) {
+      parts.push({ name: 'Voz / Melodía', partOrder: 1, deskCount: 1 })
+      parts.push({ name: 'Acompañamiento / Bajo', partOrder: 2, deskCount: 1 })
+    } else if (maxStavesInAnySystem === 4) {
+      parts.push({ name: 'Violín I', partOrder: 1, deskCount: 1 })
+      parts.push({ name: 'Violín II', partOrder: 2, deskCount: 1 })
+      parts.push({ name: 'Viola', partOrder: 3, deskCount: 1 })
+      parts.push({ name: 'Violonchelo', partOrder: 4, deskCount: 1 })
+    } else {
+      for (let s = 1; s <= maxStavesInAnySystem; s++) {
+        parts.push({
+          name: `Instrumento ${s}`,
+          partOrder: s,
+          deskCount: 1,
+        })
+      }
+    }
   } else {
     parts.push({
       name: 'Todos',
@@ -95,16 +131,15 @@ export function analyzeScore(input: AnalyzeScoreInput): ScoreAnalysisResult {
     })
   }
 
-  // Si se detectaron múltiples partes, asociarlas a los pentagramas de los sistemas
-  if (parts.length > 1) {
-    for (const page of detectedPages) {
-      for (const sys of page.systems) {
-        sys.staves.forEach((staff, sIdx) => {
-          if (parts[sIdx]) {
-            staff.partName = parts[sIdx].name
-          }
-        })
-      }
+  const isMultiInstrumental = parts.length > 1
+
+  // Asociar cada pentagrama visual a su parte / instrumento correspondiente
+  for (const page of detectedPages) {
+    for (const sys of page.systems) {
+      sys.staves.forEach((staff, sIdx) => {
+        const assignedPart = parts[sIdx] || parts[parts.length - 1]
+        staff.partName = assignedPart.name
+      })
     }
   }
 
@@ -130,6 +165,7 @@ export function analyzeScore(input: AnalyzeScoreInput): ScoreAnalysisResult {
     parts,
     pages: detectedPages,
     playbackMap: [],
+    isMultiInstrumental,
     confidence: {
       metadata: textMeta.confidence,
       layout: avgLayoutConfidence,

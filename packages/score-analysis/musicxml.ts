@@ -281,6 +281,7 @@ export function parseMusicXml(xmlContent: string): ScoreAnalysisResult {
     parts: parts.length > 0 ? parts : [{ name: 'Todos', partOrder: 1, deskCount: 1 }],
     pages,
     playbackMap,
+    isMultiInstrumental: parts.length > 1,
     confidence: {
       metadata: 0.98,
       layout: 0.95,

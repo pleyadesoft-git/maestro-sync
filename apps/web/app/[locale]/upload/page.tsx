@@ -29,6 +29,15 @@ const KEY_SIGNATURES = [
 
 const TIME_SIGNATURES = ['2/4', '3/4', '4/4', '6/8', '2/2', '3/8', '12/8']
 
+const STANDARD_INSTRUMENTS = [
+  'Violín I', 'Violín II', 'Viola', 'Violonchelo', 'Contrabajo',
+  'Flauta', 'Piccolo', 'Oboe', 'Corno Inglés', 'Clarinete', 'Clarinete Bajo', 'Fagot', 'Contrafagot',
+  'Saxofón Alto', 'Saxofón Tenor', 'Saxofón Barítono',
+  'Corno', 'Trompeta', 'Trombón', 'Tuba', 'Eufonio',
+  'Timbales', 'Percusión', 'Batería', 'Piano', 'Arpa', 'Guitarra', 'Bajo',
+  'Soprano', 'Contralto', 'Tenor', 'BajoVoz', 'Todos',
+]
+
 export default function UploadPage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = React.use(params)
   const router = useRouter()
@@ -45,6 +54,12 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
   const [fileName, setFileName] = useState<string | null>(null)
   const [fileError, setFileError] = useState<string | null>(null)
   const [fileType, setFileType] = useState<'pdf' | 'image' | 'musicxml'>('pdf')
+
+  // Partes e instrumentación (Punto 6)
+  const [parts, setParts] = useState<Array<{ name: string; instrumentCode?: string; partOrder: number }>>([
+    { name: 'Todos', partOrder: 1, instrumentCode: 'piano' }
+  ])
+  const [selectedPartIndex, setSelectedPartIndex] = useState(0)
 
   // Estado del análisis automático
   const [isAnalyzing, setIsAnalyzing] = useState(false)
@@ -114,7 +129,22 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
         }
 
         const confPct = Math.round((output.analysis.confidence.metadata * 0.4 + output.analysis.confidence.layout * 0.6) * 100)
-        setAutoDetectedBadge(`Detección automática completada (${confPct}% de confianza)`)
+        
+        const detectedParts = output.analysis.parts && output.analysis.parts.length > 0
+          ? output.analysis.parts.map((p, idx) => ({
+              name: p.name,
+              instrumentCode: p.instrumentCode || 'violin_1',
+              partOrder: idx + 1,
+            }))
+          : [{ name: 'Todos', partOrder: 1, instrumentCode: 'piano' }]
+        setParts(detectedParts)
+        setSelectedPartIndex(0)
+
+        if (detectedParts.length > 1) {
+          setAutoDetectedBadge(`Partitura Multi-Instrumental (${detectedParts.length} partes detectadas - ${confPct}% conf.)`)
+        } else {
+          setAutoDetectedBadge(`Detección automática completada (${confPct}% de confianza)`)
+        }
         setViewMode('uploaded')
       } catch (err: any) {
         console.warn('Error en análisis automático:', err)
@@ -125,6 +155,54 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
     }
   }
 
+  const handleUpdatePart = (index: number, updates: Partial<{ name: string; instrumentCode: string; partOrder: number }>) => {
+    setParts((prev) => prev.map((p, i) => (i === index ? { ...p, ...updates } : p)))
+  }
+
+  const handleAddPart = () => {
+    setParts((prev) => [
+      ...prev,
+      {
+        name: `Parte ${prev.length + 1}`,
+        instrumentCode: 'violin_1',
+        partOrder: prev.length + 1,
+      },
+    ])
+  }
+
+  const handleRemovePart = (index: number) => {
+    if (parts.length <= 1) return
+    setParts((prev) => prev.filter((_, i) => i !== index).map((p, i) => ({ ...p, partOrder: i + 1 })))
+    if (selectedPartIndex >= parts.length - 1) {
+      setSelectedPartIndex(Math.max(0, parts.length - 2))
+    }
+  }
+
+  const handleUpdateStaffY = (systemOrder: number, staffIndex: number, deltaY: number) => {
+    setPagesData((prev) =>
+      prev.map((p) => {
+        if (p.pageNumber === currentPage) {
+          return {
+            ...p,
+            systems: p.systems.map((s) => {
+              if (s.systemOrder === systemOrder && s.staves && s.staves[staffIndex]) {
+                const updatedStaves = [...s.staves]
+                const st = updatedStaves[staffIndex]
+                updatedStaves[staffIndex] = {
+                  ...st,
+                  bboxY: Math.max(0, Math.min(0.95, st.bboxY + deltaY)),
+                }
+                return { ...s, staves: updatedStaves }
+              }
+              return s
+            }),
+          }
+        }
+        return p
+      })
+    )
+  }
+
   const handleAddSystem = () => {
     const lastMeasure = currentSystems.length > 0
       ? currentSystems[currentSystems.length - 1].measureStart + currentSystems[currentSystems.length - 1].measureCount
@@ -132,6 +210,21 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
 
     const newSysOrder = currentSystems.length + 1
     const bboxY = Math.min(0.85, 0.12 + (newSysOrder - 1) * 0.18)
+
+    // Si hay varias partes configuradas, crear un staff para cada una dentro del sistema
+    const staves = parts.map((part, pIdx) => {
+      const staffHeight = Math.min(0.12, 0.14 / Math.max(1, parts.length))
+      const staffY = bboxY + pIdx * staffHeight
+      return {
+        staffOrder: pIdx + 1,
+        bboxX: 0.04,
+        bboxY: staffY,
+        bboxW: 0.92,
+        bboxH: staffHeight * 0.85,
+        partName: part.name,
+        confidence: 1.0,
+      }
+    })
 
     const newSystem = {
       systemOrder: newSysOrder,
@@ -141,7 +234,7 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
       bboxY,
       bboxW: 0.92,
       bboxH: 0.14,
-      staves: [
+      staves: staves.length > 0 ? staves : [
         {
           staffOrder: 1,
           bboxX: 0.04,
@@ -232,10 +325,7 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
       formData.append('totalMeasures', String(totalMeasures))
       formData.append('pageCount', String(Math.max(1, pagesData.length || pageImages.length || 1)))
 
-      // Partes detectadas
-      const parts = analysisResult?.parts && analysisResult.parts.length > 0
-        ? analysisResult.parts
-        : [{ name: 'Todos', partOrder: 1, deskCount: 1 }]
+      // Partes configuradas por el usuario
       formData.append('parts', JSON.stringify(parts))
 
       // Páginas, sistemas, staves y measures
@@ -502,22 +592,91 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                 </div>
               </div>
 
-              {/* Instrumentos / Partes detectadas */}
-              {analysisResult?.parts && analysisResult.parts.length > 0 && (
-                <div className="p-4 rounded-xl bg-slate-900 border border-slate-800">
-                  <p className="text-xs font-semibold text-slate-300 mb-2 flex items-center gap-1.5">
-                    <Music className="w-3.5 h-3.5 text-amber-400" />
-                    Partes e Instrumentos Detectados ({analysisResult.parts.length}):
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {analysisResult.parts.map((part, idx) => (
-                      <span key={idx} className="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-xs text-amber-300 font-medium">
-                        {part.name}
-                      </span>
-                    ))}
+              {/* Instrumentos y Separación Multi-Instrumental */}
+              <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
+                      <Music className="w-4 h-4 text-amber-400" />
+                      Particellas e Instrumentación
+                      {parts.length > 1 ? (
+                        <span className="px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[10px] font-bold">
+                          Multi-Instrumental ({parts.length} partes)
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 text-[10px] font-medium">
+                          Solista / Unificada
+                        </span>
+                      )}
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Cada músico en la sala de ensayo seleccionará su instrumento y el sistema resaltará exclusivamente su propio pentagrama.
+                    </p>
                   </div>
+                  <Button
+                    type="button"
+                    onClick={handleAddPart}
+                    variant="ghost"
+                    size="sm"
+                    className="self-start sm:self-auto text-amber-400 hover:text-amber-300"
+                  >
+                    <Plus className="w-3.5 h-3.5 mr-1" />
+                    Agregar Parte
+                  </Button>
                 </div>
-              )}
+
+                <div className="space-y-2.5">
+                  {parts.map((part, idx) => (
+                    <div
+                      key={idx}
+                      className="p-3 rounded-xl bg-slate-950 border border-slate-800 flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5"
+                    >
+                      <div className="w-7 h-7 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center text-xs font-bold shrink-0">
+                        #{idx + 1}
+                      </div>
+
+                      <div className="flex-1">
+                        <input
+                          type="text"
+                          value={part.name}
+                          onChange={(e) => handleUpdatePart(idx, { name: e.target.value })}
+                          placeholder="Nombre de la parte (ej. Violín I)"
+                          className="w-full h-9 px-3 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 text-xs focus:outline-none focus:border-amber-500"
+                        />
+                      </div>
+
+                      <div className="w-full sm:w-48">
+                        <select
+                          value={
+                            STANDARD_INSTRUMENTS.find(
+                              (si) => si.toLowerCase() === (part.instrumentCode || '').toLowerCase()
+                            ) || 'Todos'
+                          }
+                          onChange={(e) => handleUpdatePart(idx, { instrumentCode: e.target.value })}
+                          className="w-full h-9 px-2.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 text-xs focus:outline-none focus:border-amber-500"
+                        >
+                          {STANDARD_INSTRUMENTS.map((inst) => (
+                            <option key={inst} value={inst}>
+                              {inst}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {parts.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemovePart(idx)}
+                          className="p-2 text-slate-500 hover:text-rose-400 rounded-lg hover:bg-slate-900 transition-colors self-end sm:self-auto"
+                          title="Eliminar parte"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
 
               <Button type="submit" variant="primary" className="w-full" disabled={isAnalyzing}>
                 Continuar al Asistente Visual de Pentagramas
@@ -578,6 +737,30 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                 </div>
               </div>
 
+              {/* Selector de Instrumento/Parte a previsualizar */}
+              {parts.length > 1 && (
+                <div className="w-full flex flex-wrap items-center gap-2 p-2 rounded-xl bg-slate-950 border border-slate-800/80">
+                  <span className="text-xs font-semibold text-slate-400 flex items-center gap-1 mr-1">
+                    <Music className="w-3.5 h-3.5 text-amber-400" />
+                    Pentagrama a previsualizar:
+                  </span>
+                  {parts.map((part, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => setSelectedPartIndex(idx)}
+                      className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+                        selectedPartIndex === idx
+                          ? 'bg-amber-500 text-slate-950 font-bold shadow-md shadow-amber-500/20'
+                          : 'bg-slate-900 border border-slate-800 text-slate-300 hover:border-amber-500/40'
+                      }`}
+                    >
+                      {part.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               {/* Score Display Area with Staves & Measure Markers */}
               <div className="w-full h-[520px] bg-slate-950 border border-slate-800 rounded-xl relative p-4 flex flex-col justify-between select-none overflow-hidden shadow-inner">
                 {activePageImage && viewMode === 'uploaded' ? (
@@ -594,39 +777,56 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                     title={title || 'Partitura en Edición'}
                     composer={composer || 'Compositor'}
                     timeSignature={timeSignature}
-                    selectedInstrument="Todos"
+                    selectedInstrument={parts[selectedPartIndex]?.name || 'Todos'}
                   />
                 )}
 
                 {/* Overlaid Systems & Staves */}
-                {currentSystems.map((sys) => (
-                  <React.Fragment key={sys.systemOrder}>
-                    <HighlightOverlay
-                      bboxX={sys.bboxX}
-                      bboxY={sys.bboxY}
-                      bboxW={sys.bboxW}
-                      bboxH={sys.bboxH}
-                      label={`Sistema #${sys.systemOrder} (Compás ${sys.measureStart}-${sys.measureStart + sys.measureCount - 1})`}
-                    />
-                    {/* Indicador discreto de compases dentro del sistema */}
-                    {sys.measures && sys.measures.map((m) => (
-                      <div
-                        key={m.measureNumber}
-                        style={{
-                          left: `${m.xStart * 100}%`,
-                          top: `${(sys.bboxY + sys.bboxH) * 100}%`,
-                        }}
-                        className="absolute -translate-y-full px-1 py-0.5 rounded bg-slate-950/80 border border-amber-500/40 text-[9px] font-mono text-amber-300 font-bold pointer-events-none z-10"
-                      >
-                        c.{m.measureNumber}
-                      </div>
-                    ))}
-                  </React.Fragment>
-                ))}
+                {currentSystems.map((sys) => {
+                  const targetStaff = sys.staves?.[selectedPartIndex]
+                  const highlightBox = targetStaff
+                    ? {
+                        bboxX: targetStaff.bboxX,
+                        bboxY: targetStaff.bboxY,
+                        bboxW: targetStaff.bboxW,
+                        bboxH: targetStaff.bboxH,
+                      }
+                    : {
+                        bboxX: sys.bboxX,
+                        bboxY: sys.bboxY,
+                        bboxW: sys.bboxW,
+                        bboxH: sys.bboxH,
+                      }
+
+                  return (
+                    <React.Fragment key={sys.systemOrder}>
+                      <HighlightOverlay
+                        bboxX={highlightBox.bboxX}
+                        bboxY={highlightBox.bboxY}
+                        bboxW={highlightBox.bboxW}
+                        bboxH={highlightBox.bboxH}
+                        label={`${parts[selectedPartIndex]?.name || 'Sistema #' + sys.systemOrder} (c.${sys.measureStart}-${sys.measureStart + sys.measureCount - 1})`}
+                      />
+                      {/* Indicador discreto de compases dentro del sistema */}
+                      {sys.measures && sys.measures.map((m) => (
+                        <div
+                          key={m.measureNumber}
+                          style={{
+                            left: `${m.xStart * 100}%`,
+                            top: `${(highlightBox.bboxY + highlightBox.bboxH) * 100}%`,
+                          }}
+                          className="absolute -translate-y-full px-1 py-0.5 rounded bg-slate-950/80 border border-amber-500/40 text-[9px] font-mono text-amber-300 font-bold pointer-events-none z-10"
+                        >
+                          c.{m.measureNumber}
+                        </div>
+                      ))}
+                    </React.Fragment>
+                  )
+                })}
               </div>
 
               <p className="text-[11px] text-slate-500 text-center w-full">
-                Cada renglón enmarca los pentagramas con compases discretos para garantizar la sincronización milimétrica en atril.
+                Cada renglón enmarca el pentagrama específico del instrumento seleccionado para garantizar el seguimiento individual sin lag.
               </p>
             </div>
 
@@ -641,7 +841,7 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                       Agregar
                     </Button>
                   </CardTitle>
-                  <CardDescription>Ajusta el compás de inicio y la cantidad por renglón.</CardDescription>
+                  <CardDescription>Ajusta el compás de inicio y la alineación por pentagrama.</CardDescription>
                 </CardHeader>
 
                 <div className="space-y-3 max-h-[340px] overflow-y-auto pr-1">
@@ -706,9 +906,9 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                           </div>
                         </div>
 
-                        {/* Alineación vertical */}
+                        {/* Alineación vertical del sistema */}
                         <div className="pt-1 flex items-center justify-between text-[10px] text-slate-500 border-t border-slate-800/60">
-                          <span>Alineación vertical:</span>
+                          <span>Alineación sistema:</span>
                           <div className="flex items-center gap-1">
                             <button
                               type="button"
@@ -732,6 +932,39 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                             </button>
                           </div>
                         </div>
+
+                        {/* Alineación individual del pentagrama seleccionado */}
+                        {parts.length > 1 && (
+                          <div className="pt-1 flex items-center justify-between text-[10px] text-amber-400/90 border-t border-slate-800/40">
+                            <span className="truncate max-w-[120px]">
+                              Pentagrama ({parts[selectedPartIndex]?.name}):
+                            </span>
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleUpdateStaffY(sys.systemOrder, selectedPartIndex, -0.01)
+                                }}
+                                className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 hover:bg-slate-700"
+                                title="Subir pentagrama"
+                              >
+                                ▲
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleUpdateStaffY(sys.systemOrder, selectedPartIndex, 0.01)
+                                }}
+                                className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 hover:bg-slate-700"
+                                title="Bajar pentagrama"
+                              >
+                                ▼
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )
                   })}

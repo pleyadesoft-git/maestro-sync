@@ -63,6 +63,7 @@ export interface ScoreAnalysisResult {
   parts: DetectedPart[]
   pages: DetectedPage[]
   playbackMap: PlaybackJump[]
+  isMultiInstrumental?: boolean
   confidence: {
     metadata: number // 0.0 - 1.0
     layout: number   // 0.0 - 1.0
