@@ -82,6 +82,17 @@ async function syncSubscription(
     (item as { current_period_end?: number } | undefined)?.current_period_end ??
     (subscription as unknown as { current_period_end?: number }).current_period_end
 
+  // 3) Identificar item de asiento adicional ($3/músico) en bandas y orquestas
+  let seatQuantity = 0
+  let stripeSeatItemId: string | null = null
+  for (const it of subscription.items?.data ?? []) {
+    if (it.id !== item?.id) {
+      seatQuantity = it.quantity ?? 0
+      stripeSeatItemId = it.id
+      break
+    }
+  }
+
   const row = {
     plan_id: planId,
     owner_user_id: ownerUserId,
@@ -93,6 +104,8 @@ async function syncSubscription(
       ? new Date(periodEndSeconds * 1000).toISOString()
       : null,
     cancel_at_period_end: subscription.cancel_at_period_end ?? false,
+    seat_quantity: seatQuantity,
+    stripe_seat_item_id: stripeSeatItemId,
   }
 
   const { error } = await supabase
@@ -178,6 +191,35 @@ export async function POST(req: Request) {
         await notifyAdmin(supabase, 'cancellation', {
           stripe_subscription_id: subscription.id,
         })
+        break
+      }
+
+      case 'invoice.upcoming': {
+        const invoice = event.data.object as any
+        const subscriptionId =
+          typeof invoice.subscription === 'string'
+            ? invoice.subscription
+            : invoice.subscription?.id
+
+        if (subscriptionId) {
+          const { data: subRecord } = await (supabase as any)
+            .from('subscriptions')
+            .select('id, organization_id, stripe_seat_item_id')
+            .eq('stripe_subscription_id', subscriptionId)
+            .maybeSingle()
+
+          if (subRecord?.organization_id && subRecord.stripe_seat_item_id) {
+            const { data: billableSeats } = await supabase.rpc('ensemble_billable_seats', {
+              p_org_id: subRecord.organization_id,
+            })
+            if (typeof billableSeats === 'number') {
+              await stripe.subscriptionItems.update(subRecord.stripe_seat_item_id, {
+                quantity: billableSeats,
+                proration_behavior: 'none',
+              })
+            }
+          }
+        }
         break
       }
 

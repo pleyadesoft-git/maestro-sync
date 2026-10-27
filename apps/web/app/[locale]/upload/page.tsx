@@ -5,40 +5,35 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Button, Card, CardHeader, CardTitle, CardDescription, HighlightOverlay, Input, MusicScoreSheet } from '@music-flow/ui'
 import { createBrowserClient } from '@music-flow/supabase'
-import { Upload, ArrowLeft, Check, Plus, Trash2, AlertCircle, Loader2 } from 'lucide-react'
-
-interface SystemMark {
-  id: string
-  measureStart: number
-  measureCount: number
-  instrument: string
-  bboxX: number
-  bboxY: number
-  bboxW: number
-  bboxH: number
-}
+import { processScoreFile, type ProcessedScoreOutput } from '@/lib/scoreProcessor'
+import type { DetectedPage, ScoreAnalysisResult } from '@music-flow/score-analysis'
+import {
+  Upload,
+  ArrowLeft,
+  Check,
+  Plus,
+  Trash2,
+  AlertCircle,
+  Loader2,
+  Sparkles,
+  ChevronLeft,
+  ChevronRight,
+  Layers,
+  Music,
+} from 'lucide-react'
 
 const KEY_SIGNATURES = [
   'C major', 'G major', 'D major', 'A major', 'E major', 'Bb major', 'F major',
   'A minor', 'E minor', 'B minor', 'F# minor', 'D minor', 'G minor', 'C minor',
 ]
 
-const TIME_SIGNATURES = ['2/4', '3/4', '4/4', '6/8', '2/2', '3/8']
-
-// Etiqueta del editor → code sembrado en public.instruments
-const INSTRUMENT_LABEL_TO_CODE: Record<string, string> = {
-  'Violín I': 'violin_1',
-  'Violín II': 'violin_2',
-  Viola: 'viola',
-  Violonchelo: 'cello',
-}
-
-const FREE_SCORE_LIMIT = 2
+const TIME_SIGNATURES = ['2/4', '3/4', '4/4', '6/8', '2/2', '3/8', '12/8']
 
 export default function UploadPage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = React.use(params)
   const router = useRouter()
   const supabase = createBrowserClient()
+
   const [step, setStep] = useState<'meta' | 'mark'>('meta')
   const [title, setTitle] = useState('')
   const [composer, setComposer] = useState('')
@@ -49,10 +44,22 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
   const [totalMeasures, setTotalMeasures] = useState(64)
   const [fileName, setFileName] = useState<string | null>(null)
   const [fileError, setFileError] = useState<string | null>(null)
-  const [filePreviewUrl, setFilePreviewUrl] = useState<string | null>(null)
-  const [isRenderingPdf, setIsRenderingPdf] = useState(false)
+  const [fileType, setFileType] = useState<'pdf' | 'image' | 'musicxml'>('pdf')
+
+  // Estado del análisis automático
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [analysisProgress, setAnalysisProgress] = useState(0)
+  const [analysisStage, setAnalysisStage] = useState('')
+  const [analysisResult, setAnalysisResult] = useState<ScoreAnalysisResult | null>(null)
+  const [autoDetectedBadge, setAutoDetectedBadge] = useState<string | null>(null)
+
+  // Páginas renderizadas y navegación
+  const [pageImages, setPageImages] = useState<Array<{ pageNumber: number; dataUrl: string; width: number; height: number }>>([])
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pagesData, setPagesData] = useState<DetectedPage[]>([])
   const [activeSystemId, setActiveSystemId] = useState<string>('sys-1')
   const [viewMode, setViewMode] = useState<'uploaded' | 'digital'>('uploaded')
+
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [currentUser, setCurrentUser] = useState<any | null>(null)
@@ -66,14 +73,9 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
     })
   }, [supabase])
 
-
-  // Manual marking state - aligned with staves
-  const [systems, setSystems] = useState<SystemMark[]>([
-    { id: 'sys-1', measureStart: 1, measureCount: 8, instrument: 'Violín I', bboxX: 0.04, bboxY: 0.14, bboxW: 0.94, bboxH: 0.17 },
-    { id: 'sys-2', measureStart: 9, measureCount: 8, instrument: 'Violín II', bboxX: 0.04, bboxY: 0.35, bboxW: 0.94, bboxH: 0.17 },
-    { id: 'sys-3', measureStart: 17, measureCount: 8, instrument: 'Viola', bboxX: 0.04, bboxY: 0.56, bboxW: 0.94, bboxH: 0.17 },
-    { id: 'sys-4', measureStart: 25, measureCount: 8, instrument: 'Violonchelo', bboxX: 0.04, bboxY: 0.77, bboxW: 0.94, bboxH: 0.17 },
-  ])
+  // Obtener los sistemas de la página actualmente visible
+  const activePageObj = pagesData.find((p) => p.pageNumber === currentPage)
+  const currentSystems = activePageObj?.systems || []
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -82,62 +84,116 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
       setFileName(selectedFile.name)
       setFileError(null)
       setSaveError(null)
+      setIsAnalyzing(true)
+      setAnalysisProgress(10)
+      setAnalysisStage('Iniciando lectura del archivo...')
 
-      setFilePreviewUrl((prev) => {
-        if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev)
-        return null
-      })
+      try {
+        const output: ProcessedScoreOutput = await processScoreFile(selectedFile, (stage, prog) => {
+          setAnalysisStage(stage)
+          setAnalysisProgress(prog)
+        })
 
-      if (selectedFile.type.startsWith('image/')) {
-        const url = URL.createObjectURL(selectedFile)
-        setFilePreviewUrl(url)
-        setViewMode('uploaded')
-      } else if (selectedFile.type === 'application/pdf') {
-        setIsRenderingPdf(true)
-        try {
-          const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf')
-          pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`
-          const arrayBuffer = await selectedFile.arrayBuffer()
-          const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
-          const page = await pdf.getPage(1)
-          const viewport = page.getViewport({ scale: 1.5 })
-          const canvas = document.createElement('canvas')
-          canvas.width = viewport.width
-          canvas.height = viewport.height
-          const ctx = canvas.getContext('2d')
-          if (ctx) {
-            await page.render({ canvasContext: ctx, viewport }).promise
-            const dataUrl = canvas.toDataURL('image/png')
-            setFilePreviewUrl(dataUrl)
-            setViewMode('uploaded')
-          }
-        } catch (err) {
-          console.warn('PDF preview render fallback:', err)
-          setViewMode('digital')
-        } finally {
-          setIsRenderingPdf(false)
+        setFileType(output.fileType)
+        setAnalysisResult(output.analysis)
+        setPageImages(output.pageImages)
+        setCurrentPage(1)
+
+        // Rellenar automáticamente los metadatos detectados
+        if (output.analysis.title) setTitle(output.analysis.title)
+        if (output.analysis.composer) setComposer(output.analysis.composer)
+        if (output.analysis.catalogRef) setCatalogRef(output.analysis.catalogRef)
+        if (output.analysis.keySignature) setKeySignature(output.analysis.keySignature)
+        if (output.analysis.timeSignature) setTimeSignature(output.analysis.timeSignature)
+        if (output.analysis.tempoBpm) setTempo(output.analysis.tempoBpm)
+        if (output.analysis.totalMeasures) setTotalMeasures(output.analysis.totalMeasures)
+
+        // Asignar sistemas detectados
+        if (output.analysis.pages && output.analysis.pages.length > 0) {
+          setPagesData(output.analysis.pages)
         }
+
+        const confPct = Math.round((output.analysis.confidence.metadata * 0.4 + output.analysis.confidence.layout * 0.6) * 100)
+        setAutoDetectedBadge(`Detección automática completada (${confPct}% de confianza)`)
+        setViewMode('uploaded')
+      } catch (err: any) {
+        console.warn('Error en análisis automático:', err)
+        setFileError(err?.message || 'No se pudo analizar automáticamente el archivo. Puedes ingresar los datos manualmente.')
+      } finally {
+        setIsAnalyzing(false)
       }
     }
   }
 
   const handleAddSystem = () => {
-    const lastMeasure = systems.length > 0 ? systems[systems.length - 1].measureStart + systems[systems.length - 1].measureCount : 1
-    const newSystem: SystemMark = {
-      id: `sys-${Date.now()}`,
+    const lastMeasure = currentSystems.length > 0
+      ? currentSystems[currentSystems.length - 1].measureStart + currentSystems[currentSystems.length - 1].measureCount
+      : 1
+
+    const newSysOrder = currentSystems.length + 1
+    const bboxY = Math.min(0.85, 0.12 + (newSysOrder - 1) * 0.18)
+
+    const newSystem = {
+      systemOrder: newSysOrder,
       measureStart: lastMeasure,
-      measureCount: 8,
-      instrument: 'Todos',
-      bboxX: 0.05,
-      bboxY: Math.min(0.85, 0.15 * (systems.length + 1)),
-      bboxW: 0.9,
-      bboxH: 0.12,
+      measureCount: 4,
+      bboxX: 0.04,
+      bboxY,
+      bboxW: 0.92,
+      bboxH: 0.14,
+      staves: [
+        {
+          staffOrder: 1,
+          bboxX: 0.04,
+          bboxY: bboxY + 0.02,
+          bboxW: 0.92,
+          bboxH: 0.1,
+          partName: 'Todos',
+          confidence: 1.0,
+        },
+      ],
+      measures: [
+        { measureNumber: lastMeasure, xStart: 0.04, xEnd: 0.27 },
+        { measureNumber: lastMeasure + 1, xStart: 0.27, xEnd: 0.5 },
+        { measureNumber: lastMeasure + 2, xStart: 0.5, xEnd: 0.73 },
+        { measureNumber: lastMeasure + 3, xStart: 0.73, xEnd: 0.96 },
+      ],
+      confidence: 1.0,
     }
-    setSystems([...systems, newSystem])
+
+    setPagesData((prev) =>
+      prev.map((p) => {
+        if (p.pageNumber === currentPage) {
+          return { ...p, systems: [...p.systems, newSystem] }
+        }
+        return p
+      })
+    )
   }
 
-  const handleRemoveSystem = (id: string) => {
-    setSystems(systems.filter((sys) => sys.id !== id))
+  const handleRemoveSystem = (systemOrder: number) => {
+    setPagesData((prev) =>
+      prev.map((p) => {
+        if (p.pageNumber === currentPage) {
+          return { ...p, systems: p.systems.filter((s) => s.systemOrder !== systemOrder) }
+        }
+        return p
+      })
+    )
+  }
+
+  const handleUpdateSystem = (systemOrder: number, updates: Partial<(typeof currentSystems)[0]>) => {
+    setPagesData((prev) =>
+      prev.map((p) => {
+        if (p.pageNumber === currentPage) {
+          return {
+            ...p,
+            systems: p.systems.map((s) => (s.systemOrder === systemOrder ? { ...s, ...updates } : s)),
+          }
+        }
+        return p
+      })
+    )
   }
 
   const handleSaveScore = async () => {
@@ -150,13 +206,9 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
       setStep('meta')
       return
     }
-    if (!title.trim() || !composer.trim()) {
-      setSaveError('El título y el compositor son obligatorios.')
+    if (!title.trim()) {
+      setSaveError('El título de la obra es obligatorio.')
       setStep('meta')
-      return
-    }
-    if (systems.length === 0) {
-      setSaveError('Agrega al menos un renglón/pentagrama marcado.')
       return
     }
 
@@ -178,9 +230,25 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
       formData.append('timeSignature', timeSignature)
       formData.append('tempo', String(tempo))
       formData.append('totalMeasures', String(totalMeasures))
-      formData.append('systems', JSON.stringify(systems))
-      if (filePreviewUrl && filePreviewUrl.startsWith('data:image/')) {
-        formData.append('renderedPreviewDataUrl', filePreviewUrl)
+      formData.append('pageCount', String(Math.max(1, pagesData.length || pageImages.length || 1)))
+
+      // Partes detectadas
+      const parts = analysisResult?.parts && analysisResult.parts.length > 0
+        ? analysisResult.parts
+        : [{ name: 'Todos', partOrder: 1, deskCount: 1 }]
+      formData.append('parts', JSON.stringify(parts))
+
+      // Páginas, sistemas, staves y measures
+      formData.append('pages', JSON.stringify(pagesData))
+
+      // Mapa de repeticiones y saltos
+      if (analysisResult?.playbackMap && analysisResult.playbackMap.length > 0) {
+        formData.append('playbackMap', JSON.stringify(analysisResult.playbackMap))
+      }
+
+      // Imágenes de las páginas renderizadas en canvas
+      if (pageImages.length > 0) {
+        formData.append('pageImages', JSON.stringify(pageImages.map((p) => ({ pageNumber: p.pageNumber, dataUrl: p.dataUrl }))))
       }
 
       const res = await fetch('/api/scores/upload', {
@@ -204,19 +272,7 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
     }
   }
 
-
-
-  // Revoke del object URL del preview al desmontar (evita fuga de blobs)
-  const previewUrlRef = useRef<string | null>(null)
-  useEffect(() => {
-    previewUrlRef.current = filePreviewUrl
-  }, [filePreviewUrl])
-  useEffect(() => {
-    return () => {
-      const url = previewUrlRef.current
-      if (url && url.startsWith('blob:')) URL.revokeObjectURL(url)
-    }
-  }, [])
+  const activePageImage = pageImages.find((p) => p.pageNumber === currentPage)?.dataUrl
 
   return (
     <main className="min-h-screen bg-slate-950 p-6 sm:p-10">
@@ -228,16 +284,28 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
 
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold text-slate-100">Subida y Marcado de Pentagramas</h1>
-            <p className="text-sm text-slate-400">Paso {step === 'meta' ? '1: Metadatos y Archivo' : '2: Marcado Manual de Renglones'}</p>
+            <h1 className="text-2xl sm:text-3xl font-bold text-slate-100">Subida y Análisis de Partituras</h1>
+            <p className="text-sm text-slate-400">
+              {step === 'meta'
+                ? 'Paso 1: Detección Automática de Metadata y Archivo'
+                : 'Paso 2: Asistente Visual de Pentagramas y Compases'}
+            </p>
           </div>
+          {autoDetectedBadge && (
+            <span className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-medium">
+              <Sparkles className="w-3.5 h-3.5" />
+              {autoDetectedBadge}
+            </span>
+          )}
         </div>
 
         {step === 'meta' ? (
           <Card className="border-amber-500/20">
             <CardHeader>
-              <CardTitle>1. Información de la Obra</CardTitle>
-              <CardDescription>Carga el archivo PDF/Imagen e indica los datos base para el cálculo de highlight.</CardDescription>
+              <CardTitle>1. Carga Inteligente de la Obra</CardTitle>
+              <CardDescription>
+                Sube tu archivo PDF, Imagen o MusicXML. El sistema detectará automáticamente páginas, compases y sistemas.
+              </CardDescription>
             </CardHeader>
 
             {authChecked && !currentUser && (
@@ -247,9 +315,9 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                     <AlertCircle className="w-5 h-5 shrink-0" />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold">Inicia sesión para guardar tu obra</p>
+                    <p className="text-sm font-semibold">Inicia sesión para guardar en tu biblioteca</p>
                     <p className="text-xs text-amber-400/80">
-                      Puedes preparar la partitura ahora, pero necesitarás iniciar sesión para guardarla en tu biblioteca.
+                      Disfrutas de 15 días de prueba gratuita completa. Podrás preparar y revisar tu partitura sin restricciones.
                     </p>
                   </div>
                 </div>
@@ -271,7 +339,6 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
               </div>
             )}
 
-
             <form
               noValidate
               onSubmit={(e) => {
@@ -279,19 +346,11 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                 let hasError = false
 
                 if (!fileName) {
-                  setFileError('Por favor selecciona una partitura en formato PDF o Imagen para continuar')
+                  setFileError('Por favor selecciona una partitura en PDF, Imagen o MusicXML para continuar')
                   hasError = true
                 }
-
-                const form = e.currentTarget
-                if (!form.checkValidity()) {
+                if (!title.trim()) {
                   hasError = true
-                  const firstInvalid = form.querySelector(':invalid') as HTMLElement
-                  if (firstInvalid) {
-                    firstInvalid.focus()
-                    firstInvalid.setAttribute('aria-invalid', 'true')
-                  }
-                  form.querySelectorAll(':invalid').forEach((el) => el.setAttribute('aria-invalid', 'true'))
                 }
 
                 if (!hasError) {
@@ -311,48 +370,70 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                 >
                   <input
                     type="file"
-                    accept="application/pdf,image/*"
+                    accept="application/pdf,image/*,.xml,.musicxml"
                     onChange={handleFileChange}
                     className="absolute inset-0 opacity-0 cursor-pointer"
                   />
                   <Upload className={`w-10 h-10 mx-auto mb-3 ${fileError ? 'text-rose-400' : 'text-amber-500'}`} />
                   <p className="text-sm font-semibold text-slate-200">
-                    {fileName ? fileName : 'Haz clic o arrastra tu partitura en PDF o Imagen'}
+                    {fileName ? fileName : 'Haz clic o arrastra tu partitura en PDF, Imagen o MusicXML'}
                   </p>
-                  <p className="text-xs text-slate-500 mt-1">Soporta PDF multipágina y archivos JPG/PNG</p>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Soporta PDF multipágina, escaneos JPG/PNG y archivos MusicXML (.xml, .musicxml)
+                  </p>
                 </div>
 
+                {isAnalyzing && (
+                  <div className="mt-4 p-4 rounded-xl bg-slate-900 border border-amber-500/30 flex items-center gap-3">
+                    <Loader2 className="w-5 h-5 text-amber-400 animate-spin shrink-0" />
+                    <div className="flex-1 space-y-1">
+                      <div className="flex justify-between text-xs text-slate-300">
+                        <span>{analysisStage}</span>
+                        <span className="text-amber-400 font-mono">{analysisProgress}%</span>
+                      </div>
+                      <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                        <div
+                          className="h-full bg-gradient-to-r from-amber-500 to-amber-400 transition-all duration-300"
+                          style={{ width: `${analysisProgress}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {fileError && (
-                  <p role="alert" className="flex items-center gap-1.5 text-xs font-medium text-rose-400 mt-2 animate-in fade-in slide-in-from-top-1 duration-150">
+                  <p role="alert" className="flex items-center gap-1.5 text-xs font-medium text-rose-400 mt-2">
                     <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
                     <span>{fileError}</span>
                   </p>
                 )}
               </div>
 
+              {/* Form Metadata Fields */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Input
                   label="Título de la Obra"
                   required
-                  placeholder="ej. Sonata para Piano No. 14"
+                  placeholder="ej. Sinfonía No. 5"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
+                  helperText={autoDetectedBadge ? 'Detectado automáticamente' : undefined}
                 />
 
                 <Input
                   label="Compositor"
-                  required
-                  placeholder="ej. W. A. Mozart"
+                  placeholder="ej. L. van Beethoven"
                   value={composer}
                   onChange={(e) => setComposer(e.target.value)}
+                  helperText={composer ? 'Detectado automáticamente' : undefined}
                 />
 
                 <Input
                   label="Referencia de Catálogo"
-                  placeholder="ej. K. 299 / Op. 12"
+                  placeholder="ej. Op. 67 / BWV 1007"
                   value={catalogRef}
                   onChange={(e) => setCatalogRef(e.target.value)}
-                  helperText="Opcional: Catálogo BWV, KV, Hob. u Opus"
+                  helperText="Opus, BWV, K. u otro catálogo"
                 />
 
                 <Input
@@ -363,7 +444,7 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                   required
                   value={tempo}
                   onChange={(e) => setTempo(Number(e.target.value))}
-                  helperText="Rango estándar: 30 a 320 BPM"
+                  helperText="Velocidad metronómica"
                 />
 
                 <div className="space-y-1.5">
@@ -412,63 +493,99 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                   onChange={(e) => setTotalMeasures(Number(e.target.value))}
                   helperText="Compases de la obra completa"
                 />
+
+                <div className="space-y-1.5">
+                  <label className="block text-sm font-medium text-slate-300">Páginas Detectadas</label>
+                  <div className="w-full h-12 px-4 rounded-xl bg-slate-950 border border-slate-800 text-slate-300 flex items-center text-sm font-semibold">
+                    {Math.max(1, pagesData.length || pageImages.length || 1)} {pagesData.length === 1 ? 'página' : 'páginas'}
+                  </div>
+                </div>
               </div>
 
-              <Button type="submit" variant="primary" className="w-full">
-                Continuar al Editor de Pentagramas
+              {/* Instrumentos / Partes detectadas */}
+              {analysisResult?.parts && analysisResult.parts.length > 0 && (
+                <div className="p-4 rounded-xl bg-slate-900 border border-slate-800">
+                  <p className="text-xs font-semibold text-slate-300 mb-2 flex items-center gap-1.5">
+                    <Music className="w-3.5 h-3.5 text-amber-400" />
+                    Partes e Instrumentos Detectados ({analysisResult.parts.length}):
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {analysisResult.parts.map((part, idx) => (
+                      <span key={idx} className="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-xs text-amber-300 font-medium">
+                        {part.name}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <Button type="submit" variant="primary" className="w-full" disabled={isAnalyzing}>
+                Continuar al Asistente Visual de Pentagramas
               </Button>
             </form>
           </Card>
         ) : (
+          /* PASO 2: ASISTENTE VISUAL Y REVISIÓN DE PENTAGRAMAS */
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* Canvas Preview Area */}
             <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-6 min-h-[560px] relative overflow-hidden flex flex-col items-center justify-between gap-4">
-              {/* Top Mode Bar */}
+              {/* Top Bar con Paginación */}
               <div className="w-full flex items-center justify-between text-xs text-slate-400">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-3">
                   <span className="font-semibold text-slate-200">
-                    {filePreviewUrl && viewMode === 'uploaded' ? 'Vista: Partitura Original con Notas' : 'Vista: Notación con Notas Reales'}
+                    Página {currentPage} de {Math.max(1, pagesData.length || pageImages.length || 1)}
                   </span>
-                  {isRenderingPdf && (
-                    <span className="text-amber-400 animate-pulse text-[11px]">(Renderizando página PDF...)</span>
+                  {pagesData.length > 1 && (
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        disabled={currentPage <= 1}
+                        onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                        className="p-1 rounded bg-slate-800 text-slate-300 disabled:opacity-40 hover:bg-slate-700"
+                      >
+                        <ChevronLeft className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={currentPage >= (pagesData.length || pageImages.length || 1)}
+                        onClick={() => setCurrentPage((p) => p + 1)}
+                        className="p-1 rounded bg-slate-800 text-slate-300 disabled:opacity-40 hover:bg-slate-700"
+                      >
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   )}
                 </div>
 
-                {filePreviewUrl && (
-                  <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800">
-                    <button
-                      type="button"
-                      onClick={() => setViewMode('uploaded')}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
-                        viewMode === 'uploaded'
-                          ? 'bg-amber-500 text-slate-950 font-bold'
-                          : 'text-slate-400 hover:text-slate-200'
-                      }`}
-                    >
-                      Archivo Subido
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setViewMode('digital')}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
-                        viewMode === 'digital'
-                          ? 'bg-amber-500 text-slate-950 font-bold'
-                          : 'text-slate-400 hover:text-slate-200'
-                      }`}
-                    >
-                      Notación SVG
-                    </button>
-                  </div>
-                )}
+                <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('uploaded')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                      viewMode === 'uploaded' ? 'bg-amber-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    Original
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('digital')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                      viewMode === 'digital' ? 'bg-amber-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    Notación SVG
+                  </button>
+                </div>
               </div>
 
-              {/* Score Display Area with Staves and Real Notes */}
+              {/* Score Display Area with Staves & Measure Markers */}
               <div className="w-full h-[520px] bg-slate-950 border border-slate-800 rounded-xl relative p-4 flex flex-col justify-between select-none overflow-hidden shadow-inner">
-                {filePreviewUrl && viewMode === 'uploaded' ? (
+                {activePageImage && viewMode === 'uploaded' ? (
                   <div className="relative w-full h-full flex items-center justify-center">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-                      src={filePreviewUrl}
-                      alt="Partitura cargada"
+                      src={activePageImage}
+                      alt={`Página ${currentPage}`}
                       className="max-w-full max-h-full object-contain pointer-events-none select-none"
                     />
                   </div>
@@ -476,26 +593,40 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                   <MusicScoreSheet
                     title={title || 'Partitura en Edición'}
                     composer={composer || 'Compositor'}
-                    timeSignature="2/4"
+                    timeSignature={timeSignature}
                     selectedInstrument="Todos"
                   />
                 )}
 
-                {/* Overlaid Bounding Boxes for Each Stave */}
-                {systems.map((sys) => (
-                  <HighlightOverlay
-                    key={sys.id}
-                    bboxX={sys.bboxX}
-                    bboxY={sys.bboxY}
-                    bboxW={sys.bboxW}
-                    bboxH={sys.bboxH}
-                    label={`${sys.instrument} (Compás ${sys.measureStart}-${sys.measureStart + sys.measureCount - 1})`}
-                  />
+                {/* Overlaid Systems & Staves */}
+                {currentSystems.map((sys) => (
+                  <React.Fragment key={sys.systemOrder}>
+                    <HighlightOverlay
+                      bboxX={sys.bboxX}
+                      bboxY={sys.bboxY}
+                      bboxW={sys.bboxW}
+                      bboxH={sys.bboxH}
+                      label={`Sistema #${sys.systemOrder} (Compás ${sys.measureStart}-${sys.measureStart + sys.measureCount - 1})`}
+                    />
+                    {/* Indicador discreto de compases dentro del sistema */}
+                    {sys.measures && sys.measures.map((m) => (
+                      <div
+                        key={m.measureNumber}
+                        style={{
+                          left: `${m.xStart * 100}%`,
+                          top: `${(sys.bboxY + sys.bboxH) * 100}%`,
+                        }}
+                        className="absolute -translate-y-full px-1 py-0.5 rounded bg-slate-950/80 border border-amber-500/40 text-[9px] font-mono text-amber-300 font-bold pointer-events-none z-10"
+                      >
+                        c.{m.measureNumber}
+                      </div>
+                    ))}
+                  </React.Fragment>
                 ))}
               </div>
 
               <p className="text-[11px] text-slate-500 text-center w-full">
-                Cada renglón enmarca el pentagrama con sus notas correspondientes para la sincronización milimétrica.
+                Cada renglón enmarca los pentagramas con compases discretos para garantizar la sincronización milimétrica en atril.
               </p>
             </div>
 
@@ -504,22 +635,22 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base flex items-center justify-between">
-                    <span>Pentagramas ({systems.length})</span>
+                    <span>Sistemas en Pág. {currentPage} ({currentSystems.length})</span>
                     <Button onClick={handleAddSystem} variant="ghost" size="sm">
                       <Plus className="w-3.5 h-3.5 mr-1" />
                       Agregar
                     </Button>
                   </CardTitle>
-                  <CardDescription>Define compases por renglón para sincronización fluida.</CardDescription>
+                  <CardDescription>Ajusta el compás de inicio y la cantidad por renglón.</CardDescription>
                 </CardHeader>
 
                 <div className="space-y-3 max-h-[340px] overflow-y-auto pr-1">
-                  {systems.map((sys, index) => {
-                    const isSelected = activeSystemId === sys.id
+                  {currentSystems.map((sys) => {
+                    const isSelected = activeSystemId === `sys-${sys.systemOrder}`
                     return (
                       <div
-                        key={sys.id}
-                        onClick={() => setActiveSystemId(sys.id)}
+                        key={sys.systemOrder}
+                        onClick={() => setActiveSystemId(`sys-${sys.systemOrder}`)}
                         className={`p-3 rounded-xl border text-xs space-y-2 cursor-pointer transition-all ${
                           isSelected
                             ? 'bg-slate-900 border-amber-500/60 ring-1 ring-amber-500/30'
@@ -528,14 +659,17 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                       >
                         <div className="flex items-center justify-between font-semibold text-amber-400">
                           <span className="flex items-center gap-1.5">
-                            <span>Renglón #{index + 1}</span>
-                            <span className="text-[10px] text-slate-400 font-normal">({sys.instrument})</span>
+                            <Layers className="w-3 h-3 text-amber-400" />
+                            <span>Sistema #{sys.systemOrder}</span>
+                            <span className="text-[10px] text-slate-400 font-normal">
+                              ({sys.confidence >= 0.8 ? 'Alta confianza' : 'Revisión sugerida'})
+                            </span>
                           </span>
                           <button
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation()
-                              handleRemoveSystem(sys.id)
+                              handleRemoveSystem(sys.systemOrder)
                             }}
                             className="text-slate-500 hover:text-red-400"
                           >
@@ -549,14 +683,12 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                             <input
                               type="number"
                               min={1}
-                              required
                               value={sys.measureStart}
-                              onInvalid={(e) => e.preventDefault()}
                               onChange={(e) => {
                                 const val = Math.max(1, Number(e.target.value))
-                                setSystems(systems.map((s) => (s.id === sys.id ? { ...s, measureStart: val } : s)))
+                                handleUpdateSystem(sys.systemOrder, { measureStart: val })
                               }}
-                              className="w-full h-8 px-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 text-xs focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/40"
+                              className="w-full h-8 px-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 text-xs focus:outline-none focus:border-amber-500"
                             />
                           </div>
                           <div>
@@ -564,19 +696,17 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                             <input
                               type="number"
                               min={1}
-                              required
                               value={sys.measureCount}
-                              onInvalid={(e) => e.preventDefault()}
                               onChange={(e) => {
                                 const val = Math.max(1, Number(e.target.value))
-                                setSystems(systems.map((s) => (s.id === sys.id ? { ...s, measureCount: val } : s)))
+                                handleUpdateSystem(sys.systemOrder, { measureCount: val })
                               }}
-                              className="w-full h-8 px-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 text-xs focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/40"
+                              className="w-full h-8 px-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 text-xs focus:outline-none focus:border-amber-500"
                             />
                           </div>
                         </div>
 
-                        {/* Fine tuning vertical positioning */}
+                        {/* Alineación vertical */}
                         <div className="pt-1 flex items-center justify-between text-[10px] text-slate-500 border-t border-slate-800/60">
                           <span>Alineación vertical:</span>
                           <div className="flex items-center gap-1">
@@ -584,7 +714,7 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation()
-                                setSystems(systems.map((s) => (s.id === sys.id ? { ...s, bboxY: Math.max(0, s.bboxY - 0.02) } : s)))
+                                handleUpdateSystem(sys.systemOrder, { bboxY: Math.max(0, sys.bboxY - 0.02) })
                               }}
                               className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 hover:bg-slate-700"
                             >
@@ -594,7 +724,7 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation()
-                                setSystems(systems.map((s) => (s.id === sys.id ? { ...s, bboxY: Math.min(0.85, s.bboxY + 0.02) } : s)))
+                                handleUpdateSystem(sys.systemOrder, { bboxY: Math.min(0.85, sys.bboxY + 0.02) })
                               }}
                               className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 hover:bg-slate-700"
                             >
@@ -627,7 +757,7 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                     ) : (
                       <>
                         <Check className="w-4 h-4 mr-1" />
-                        Guardar
+                        Guardar Obra
                       </>
                     )}
                   </Button>

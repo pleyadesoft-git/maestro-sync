@@ -1,0 +1,7 @@
+{
+  "extends": "@music-flow/config/tsconfig.base.json",
+  "compilerOptions": {
+    "moduleResolution": "bundler"
+  },
+  "include": ["**/*.ts"]
+}

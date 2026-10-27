@@ -104,6 +104,12 @@ export default function AdminDashboard() {
 
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
+    const form = e.currentTarget
+    if (!form.checkValidity()) {
+      const firstInvalid = form.querySelector(':invalid') as HTMLElement
+      if (firstInvalid) firstInvalid.focus()
+      return
+    }
     setAuthLoading(true)
     setAuthError(null)
     const supabase = createBrowserClient()
@@ -211,7 +217,7 @@ export default function AdminDashboard() {
             </div>
           )}
 
-          <form onSubmit={handleLogin} className="space-y-4 px-6 pb-6">
+          <form noValidate onSubmit={handleLogin} className="space-y-4 px-6 pb-6">
             <Input
               label="Correo Electrónico"
               type="email"

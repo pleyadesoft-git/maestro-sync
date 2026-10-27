@@ -3,7 +3,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
-import { MusicScoreSheet, type ScorePageData, type ScoreSystemData } from '@music-flow/ui'
+import {
+  MusicScoreSheet,
+  type ScorePageData,
+  type ScoreSystemData,
+  type MeasureIndicatorStyle,
+} from '@music-flow/ui'
 import { usePlaybackStore, useSessionStore } from '@music-flow/stores'
 import { createBrowserClient } from '@music-flow/supabase'
 import { renderPdfToDataUrl } from '@/lib/pdfRenderer'
@@ -18,6 +23,18 @@ import {
   Radio,
   AlertTriangle,
   Loader2,
+  Smartphone,
+  Tablet,
+  Monitor,
+  Sliders,
+  Footprints,
+  Music,
+  Check,
+  X,
+  Bell,
+  Sparkles,
+  Timer,
+  HandMetal,
 } from 'lucide-react'
 
 type PlaybackStatus = 'waiting' | 'playing' | 'paused' | 'stopped' | 'ended'
@@ -31,6 +48,7 @@ type PlaybackPayload = {
 
 type PresenceInfo = {
   user: string
+  userId?: string
   instrument: string
   joined_at: string
 }
@@ -113,6 +131,16 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
     keySignature?: string | null
     timeSignature?: string | null
   } | null>(null)
+
+  // Layout adaptativo y modo de atril
+  const [deviceLayout, setDeviceLayout] = useState<'mobile' | 'tablet' | 'desktop'>('tablet')
+  const [indicatorStyle, setIndicatorStyle] = useState<MeasureIndicatorStyle | 'none'>('subtle')
+  const [syncMode, setSyncMode] = useState<'metronome' | 'manual'>('metronome')
+  const [showStandManager, setShowStandManager] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
+  const [notification, setNotification] = useState<string | null>(null)
+  const [targetInstrumentForUser, setTargetInstrumentForUser] = useState<Record<string, string>>({})
+  const [isReassigning, setIsReassigning] = useState(false)
 
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
   const anchorRef = useRef<PlaybackAnchor | null>(null)
@@ -221,6 +249,72 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
       if (sys?.pageNumber) {
         setActivePageNumber(sys.pageNumber)
       }
+    }
+  }
+
+  // Auto-desvanecer notificaciones toast
+  useEffect(() => {
+    if (!notification) return
+    const t = setTimeout(() => setNotification(null), 4000)
+    return () => clearTimeout(t)
+  }, [notification])
+
+  // Detección automática del dispositivo de lectura (Punto 8)
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth < 640) {
+        setDeviceLayout('mobile')
+      } else if (window.innerWidth < 1024) {
+        setDeviceLayout('tablet')
+      } else {
+        setDeviceLayout('desktop')
+      }
+    }
+    handleResize()
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
+
+  // Screen Wake Lock API — Pantalla siempre activa en atriles
+  useEffect(() => {
+    let wakeLock: any = null
+    const requestLock = async () => {
+      try {
+        if ('wakeLock' in navigator) {
+          wakeLock = await (navigator as any).wakeLock.request('screen')
+        }
+      } catch {
+        /* no soportado o bloqueado */
+      }
+    }
+    void requestLock()
+    const handleVis = () => {
+      if (document.visibilityState === 'visible') void requestLock()
+    }
+    document.addEventListener('visibilitychange', handleVis)
+    return () => {
+      document.removeEventListener('visibilitychange', handleVis)
+      if (wakeLock) wakeLock.release().catch(() => {})
+    }
+  }, [])
+
+
+  // Asignación de atril por el director en tiempo real (Punto 7)
+  const handleAssignStand = async (targetUser: PresenceInfo, newInstrument: string) => {
+    if (!channelRef.current || !targetUser.userId) return
+    setIsReassigning(true)
+    try {
+      await channelRef.current.send({
+        type: 'broadcast',
+        event: 'stand_assignment',
+        payload: {
+          targetUserId: targetUser.userId,
+          newInstrument,
+        },
+      })
+      setNotification(`Atril "${newInstrument}" asignado con éxito a ${targetUser.user === 'director' ? 'Director' : 'Músico'}.`)
+    } finally {
+      setIsReassigning(false)
     }
   }
 
@@ -531,6 +625,12 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
       .on('broadcast', { event: 'playback_sync' }, ({ payload }) => {
         applyPlayback(payload as PlaybackPayload)
       })
+      .on('broadcast', { event: 'stand_assignment' }, ({ payload }: any) => {
+        if (payload?.targetUserId && payload.targetUserId === userId) {
+          handleInstrumentChange(payload.newInstrument)
+          setNotification(`¡El director te asignó al atril: ${payload.newInstrument}!`)
+        }
+      })
       .on('presence', { event: 'sync' }, () => {
         const state = channel.presenceState() as Record<string, PresenceInfo[]>
         setConnectedUsers(Object.values(state).flat())
@@ -539,6 +639,7 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
         if (subStatus === 'SUBSCRIBED') {
           await channel.track({
             user: userId === sessionInfo?.directorUserId ? 'director' : 'performer',
+            userId: userId || undefined,
             instrument: selectedInstrument,
             joined_at: new Date().toISOString(),
           })
@@ -550,18 +651,19 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
       supabase.removeChannel(channel)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, code])
+  }, [phase, code, userId])
 
   // Re-track al cambiar de instrumento (sin re-suscribir el canal)
   useEffect(() => {
     if (phase !== 'ready' || !channelRef.current) return
     void channelRef.current.track({
       user: userId === sessionInfo?.directorUserId ? 'director' : 'performer',
+      userId: userId || undefined,
       instrument: selectedInstrument,
       joined_at: new Date().toISOString(),
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedInstrument, phase])
+  }, [selectedInstrument, phase, userId])
 
   // 3) Emisión del director: broadcast al canal suscrito + persistencia en BD
   const broadcastPlayback = useCallback(
@@ -692,6 +794,47 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
     })
   }
 
+  // Soporte para pedales Bluetooth y atajos de teclado (PageDown / PageUp / Espacio)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase()
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') return
+
+      if (e.key === 'PageDown' || e.key === 'ArrowRight') {
+        e.preventDefault()
+        if (isDirectorRef.current && syncMode === 'manual') {
+          handleSeek((measureFromAnchor() ?? measureRef.current) + 1)
+        } else {
+          setActivePageNumber((prev) => {
+            const maxPage = scorePages.length > 0 ? scorePages.length : 1
+            return Math.min(maxPage, prev + 1)
+          })
+        }
+      } else if (e.key === 'PageUp' || e.key === 'ArrowLeft') {
+        e.preventDefault()
+        if (isDirectorRef.current && syncMode === 'manual') {
+          handleSeek(Math.max(1, (measureFromAnchor() ?? measureRef.current) - 1))
+        } else {
+          setActivePageNumber((prev) => Math.max(1, prev - 1))
+        }
+      } else if (e.key === ' ' || e.code === 'Space') {
+        e.preventDefault()
+        if (isDirectorRef.current) {
+          if (syncMode === 'manual') {
+            handleSeek((measureFromAnchor() ?? measureRef.current) + 1)
+          } else {
+            if (status === 'playing') handlePause()
+            else handlePlay()
+          }
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [syncMode, scorePages.length, status])
+
   if (phase === 'loading') {
     return (
       <main className="h-dvh bg-slate-950 flex flex-col items-center justify-center gap-4 text-slate-300">
@@ -771,27 +914,120 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
           </div>
         </div>
 
-        {/* Status Indicator & Instrument Picker */}
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800 text-xs">
-            <Radio
-              className={`w-3.5 h-3.5 ${status === 'playing' ? 'text-amber-400 animate-pulse' : 'text-slate-500'}`}
-            />
-            <span className="capitalize font-semibold text-slate-300">{status}</span>
+        {/* Top Navbar Actions & Options */}
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+          {/* Notification Toast */}
+          {notification && (
+            <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-amber-500 text-slate-950 font-bold px-4 py-2 rounded-xl shadow-2xl flex items-center gap-2 border border-amber-300 text-xs animate-in fade-in slide-in-from-top-2 duration-200">
+              <Sparkles className="w-4 h-4 text-slate-950 shrink-0" />
+              <span>{notification}</span>
+            </div>
+          )}
+
+          {/* Device Layout Selector (Punto 8) */}
+          <div className="hidden md:flex items-center gap-0.5 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
+            <button
+              type="button"
+              onClick={() => setDeviceLayout('mobile')}
+              title="Modo Celular (Enfoque en pentagrama)"
+              className={`p-1.5 rounded-lg transition-colors flex items-center gap-1 ${
+                deviceLayout === 'mobile'
+                  ? 'bg-amber-500 text-slate-950 font-bold'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Smartphone className="w-3.5 h-3.5" />
+              <span className="text-[11px]">Móvil</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setDeviceLayout('tablet')}
+              title="Modo Atril / Tablet (Página completa)"
+              className={`p-1.5 rounded-lg transition-colors flex items-center gap-1 ${
+                deviceLayout === 'tablet'
+                  ? 'bg-amber-500 text-slate-950 font-bold'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Tablet className="w-3.5 h-3.5" />
+              <span className="text-[11px]">Atril</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setDeviceLayout('desktop')}
+              title="Modo Escritorio"
+              className={`p-1.5 rounded-lg transition-colors flex items-center gap-1 ${
+                deviceLayout === 'desktop'
+                  ? 'bg-amber-500 text-slate-950 font-bold'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Monitor className="w-3.5 h-3.5" />
+              <span className="text-[11px]">Escritorio</span>
+            </button>
           </div>
 
-          <select
-            value={selectedInstrument}
-            onChange={(e) => handleInstrumentChange(e.target.value)}
-            aria-label="Seleccionar atril / instrumento"
-            className="h-9 px-3 rounded-xl bg-slate-800 border border-slate-700 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
-          >
-            {availableInstruments.map((inst) => (
-              <option key={inst} value={inst}>
-                Atril: {inst}
+          {/* Discrete Measure Indicator Selector (Punto 9) */}
+          <div className="hidden lg:flex items-center gap-1 bg-slate-950 px-2 py-1 rounded-xl border border-slate-800 text-xs">
+            <span className="text-[10px] text-slate-400">Indicador:</span>
+            <select
+              value={indicatorStyle}
+              onChange={(e) => setIndicatorStyle(e.target.value as any)}
+              aria-label="Estilo de indicador de compás"
+              className="bg-transparent text-amber-400 text-xs font-semibold focus:outline-none cursor-pointer"
+            >
+              <option value="subtle" className="bg-slate-900 text-slate-200">
+                Sombreado tenue
               </option>
-            ))}
-          </select>
+              <option value="bar" className="bg-slate-900 text-slate-200">
+                Cursor vertical
+              </option>
+              <option value="minimal" className="bg-slate-900 text-slate-200">
+                Número discreto
+              </option>
+              <option value="none" className="bg-slate-900 text-slate-200">
+                Oculto
+              </option>
+            </select>
+          </div>
+
+          {/* Director Stand Manager Button (Punto 7) */}
+          {isDirector && (
+            <button
+              type="button"
+              onClick={() => setShowStandManager(true)}
+              className="h-9 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs text-amber-400 font-semibold flex items-center gap-1.5 transition-colors shadow-sm"
+            >
+              <Users className="w-3.5 h-3.5 text-amber-400" />
+              <span className="hidden sm:inline">Atriles de la orquesta</span>
+              <span className="px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-300 font-mono text-[10px]">
+                {connectedUsers.length}
+              </span>
+            </button>
+          )}
+
+          {/* Status Indicator & Instrument Picker */}
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 bg-slate-950 px-2.5 py-1.5 rounded-xl border border-slate-800 text-xs">
+              <Radio
+                className={`w-3.5 h-3.5 ${status === 'playing' ? 'text-amber-400 animate-pulse' : 'text-slate-500'}`}
+              />
+              <span className="capitalize font-semibold text-slate-300 hidden sm:inline">{status}</span>
+            </div>
+
+            <select
+              value={selectedInstrument}
+              onChange={(e) => handleInstrumentChange(e.target.value)}
+              aria-label="Seleccionar atril / instrumento"
+              className="h-9 px-2.5 rounded-xl bg-slate-800 border border-slate-700 text-xs text-slate-200 focus:outline-none focus:border-amber-500 cursor-pointer"
+            >
+              {availableInstruments.map((inst) => (
+                <option key={inst} value={inst} className="bg-slate-900 text-slate-200">
+                  {inst}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </header>
 
@@ -810,17 +1046,19 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
             systems={scoreSystems}
             activePageNumber={activePageNumber}
             onPageChange={setActivePageNumber}
+            deviceLayout={deviceLayout}
+            measureIndicatorStyle={indicatorStyle}
             highlightLabel={
               activeSystem ? `${selectedInstrument} — Compás ${currentMeasure}` : undefined
             }
           />
 
           {/* Measure Progress Footer Badge */}
-          <div className="absolute bottom-3 right-3 sm:bottom-4 sm:right-6 z-10 bg-slate-950/80 backdrop-blur-md px-4 py-2 rounded-xl border border-slate-800 flex items-center gap-3 shadow-xl">
-            <span className="text-xs text-slate-400 uppercase tracking-wider font-semibold">
+          <div className="absolute bottom-3 right-3 sm:bottom-4 sm:right-6 z-10 bg-slate-950/80 backdrop-blur-md px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl border border-slate-800 flex items-center gap-2 sm:gap-3 shadow-xl">
+            <span className="text-[10px] sm:text-xs text-slate-400 uppercase tracking-wider font-semibold">
               Compás
             </span>
-            <span className="font-mono text-xl font-bold text-amber-400">
+            <span className="font-mono text-lg sm:text-xl font-bold text-amber-400">
               {currentMeasure}
               {totalMeasures ? (
                 <span className="text-xs font-normal text-slate-500"> / {totalMeasures}</span>
@@ -832,89 +1070,256 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
 
       {/* Bottom Control Toolbar */}
       <footer className="h-16 sm:h-20 shrink-0 border-t border-slate-800 bg-slate-900/95 backdrop-blur-md px-3 sm:px-8 flex items-center justify-between z-20">
-        {/* Connected Participants */}
-        <div className="flex items-center gap-2 text-slate-400 text-xs">
-          <Users className="w-4 h-4 text-amber-400" />
-          <span>{connectedUsers.length} músicos en sala</span>
-        </div>
-
-        {/* Playback Controls */}
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => handleSeek((measureFromAnchor() ?? currentMeasure) - 4)}
-            disabled={!isDirector}
-            aria-label="Retroceder 4 compases"
-            className="p-2.5 rounded-xl text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <Rewind className="w-5 h-5" />
-          </button>
-
-          {status === 'playing' ? (
-            <button
-              onClick={handlePause}
-              disabled={!isDirector}
-              aria-label="Pausar"
-              className="w-12 h-12 rounded-full bg-amber-500 text-slate-950 flex items-center justify-center shadow-lg shadow-amber-500/25 hover:bg-amber-400 transition-all disabled:opacity-50"
-            >
-              <Pause className="w-6 h-6 fill-current" />
-            </button>
+        {/* Sync Mode Toggle for Director */}
+        <div className="flex items-center gap-3">
+          {isDirector ? (
+            <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
+              <button
+                type="button"
+                onClick={() => setSyncMode('metronome')}
+                className={`px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1 font-semibold ${
+                  syncMode === 'metronome'
+                    ? 'bg-amber-500 text-slate-950 font-bold'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Timer className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Metrónomo</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSyncMode('manual')
+                  if (status === 'playing') handlePause()
+                }}
+                className={`px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1 font-semibold ${
+                  syncMode === 'manual'
+                    ? 'bg-amber-500 text-slate-950 font-bold'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <HandMetal className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Manual</span>
+              </button>
+            </div>
           ) : (
-            <button
-              onClick={handlePlay}
-              disabled={!isDirector}
-              aria-label="Reproducir"
-              className="w-12 h-12 rounded-full bg-amber-500 text-slate-950 flex items-center justify-center shadow-lg shadow-amber-500/25 hover:bg-amber-400 transition-all disabled:opacity-50"
-            >
-              <Play className="w-6 h-6 fill-current ml-0.5" />
-            </button>
+            <div className="flex items-center gap-2 text-slate-400 text-xs">
+              <Users className="w-4 h-4 text-amber-400" />
+              <span>{connectedUsers.length} en sala</span>
+            </div>
           )}
-
-          <button
-            onClick={handleStop}
-            disabled={!isDirector}
-            aria-label="Detener"
-            className="p-2.5 rounded-xl text-slate-400 hover:text-red-400 hover:bg-slate-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <Square className="w-5 h-5" />
-          </button>
-
-          <button
-            onClick={() => handleSeek((measureFromAnchor() ?? currentMeasure) + 4)}
-            disabled={!isDirector}
-            aria-label="Avanzar 4 compases"
-            className="p-2.5 rounded-xl text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <FastForward className="w-5 h-5" />
-          </button>
         </div>
+
+        {/* Playback Controls (Metronome vs Manual Mode) */}
+        {syncMode === 'manual' && isDirector ? (
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => handleSeek(Math.max(1, currentMeasure - 1))}
+              aria-label="Compás anterior"
+              className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs border border-slate-700 transition-colors flex items-center gap-1"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              <span>Compás -</span>
+            </button>
+            <div className="px-3 py-1 bg-amber-500/20 border border-amber-500/40 rounded-xl text-center">
+              <span className="text-[10px] text-amber-300 block uppercase font-mono">Modo Manual</span>
+              <span className="text-sm font-bold text-amber-400 font-mono">Compás {currentMeasure}</span>
+            </div>
+            <button
+              onClick={() => handleSeek(currentMeasure + 1)}
+              aria-label="Siguiente compás"
+              className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-lg shadow-amber-500/25 transition-all flex items-center gap-1"
+            >
+              <span>Siguiente compás</span>
+              <ChevronLeft className="w-4 h-4 rotate-180" />
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-3 sm:gap-4">
+            <button
+              onClick={() => handleSeek((measureFromAnchor() ?? currentMeasure) - 4)}
+              disabled={!isDirector}
+              aria-label="Retroceder 4 compases"
+              className="p-2 sm:p-2.5 rounded-xl text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Rewind className="w-4 h-4 sm:w-5 sm:h-5" />
+            </button>
+
+            {status === 'playing' ? (
+              <button
+                onClick={handlePause}
+                disabled={!isDirector}
+                aria-label="Pausar"
+                className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-amber-500 text-slate-950 flex items-center justify-center shadow-lg shadow-amber-500/25 hover:bg-amber-400 transition-all disabled:opacity-50"
+              >
+                <Pause className="w-5 h-5 sm:w-6 sm:h-6 fill-current" />
+              </button>
+            ) : (
+              <button
+                onClick={handlePlay}
+                disabled={!isDirector}
+                aria-label="Reproducir"
+                className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-amber-500 text-slate-950 flex items-center justify-center shadow-lg shadow-amber-500/25 hover:bg-amber-400 transition-all disabled:opacity-50"
+              >
+                <Play className="w-5 h-5 sm:w-6 sm:h-6 fill-current ml-0.5" />
+              </button>
+            )}
+
+            <button
+              onClick={handleStop}
+              disabled={!isDirector}
+              aria-label="Detener"
+              className="p-2 sm:p-2.5 rounded-xl text-slate-400 hover:text-red-400 hover:bg-slate-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Square className="w-4 h-4 sm:w-5 sm:h-5" />
+            </button>
+
+            <button
+              onClick={() => handleSeek((measureFromAnchor() ?? currentMeasure) + 4)}
+              disabled={!isDirector}
+              aria-label="Avanzar 4 compases"
+              className="p-2 sm:p-2.5 rounded-xl text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <FastForward className="w-4 h-4 sm:w-5 sm:h-5" />
+            </button>
+          </div>
+        )}
 
         {/* Live Tempo Controls */}
-        <div className="flex items-center gap-3">
-          <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Tempo</span>
+        <div className="flex items-center gap-2 sm:gap-3">
+          <span className="hidden sm:inline text-xs font-semibold text-slate-400 uppercase tracking-wider">
+            Tempo
+          </span>
           <div className="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-xl p-1">
             <button
               onClick={() => handleTempoChange(Math.max(40, tempoBpm - 5))}
               disabled={!isDirector}
               aria-label="Reducir tempo"
-              className="w-7 h-7 rounded-lg text-slate-400 hover:text-amber-400 hover:bg-slate-900 transition-colors font-bold disabled:opacity-50"
+              className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg text-slate-400 hover:text-amber-400 hover:bg-slate-900 transition-colors font-bold disabled:opacity-50"
             >
               -
             </button>
-            <span className="w-12 text-center font-mono text-sm font-bold text-amber-400">
+            <span className="w-9 sm:w-12 text-center font-mono text-xs sm:text-sm font-bold text-amber-400">
               {tempoBpm}
             </span>
             <button
               onClick={() => handleTempoChange(Math.min(240, tempoBpm + 5))}
               disabled={!isDirector}
               aria-label="Aumentar tempo"
-              className="w-7 h-7 rounded-lg text-slate-400 hover:text-amber-400 hover:bg-slate-900 transition-colors font-bold disabled:opacity-50"
+              className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg text-slate-400 hover:text-amber-400 hover:bg-slate-900 transition-colors font-bold disabled:opacity-50"
             >
               +
             </button>
           </div>
-          <span className="text-xs text-slate-500">BPM</span>
+          <span className="text-[10px] sm:text-xs text-slate-500">BPM</span>
         </div>
       </footer>
+
+      {/* Stand Manager Modal (Punto 7) */}
+      {showStandManager && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full max-h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="p-5 border-b border-slate-800 flex items-center justify-between">
+              <div>
+                <h3 className="font-bold text-slate-100 text-lg flex items-center gap-2">
+                  <Users className="w-5 h-5 text-amber-400" />
+                  Atriles y Asignación de Particellas
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  Asigna o reasigna en tiempo real el atril / instrumento a cada músico conectado.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowStandManager(false)}
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Musicians List */}
+            <div className="p-5 flex-1 overflow-y-auto space-y-3">
+              {connectedUsers.length === 0 ? (
+                <p className="text-center text-xs text-slate-500 py-8">
+                  Esperando a que los músicos se conecten a la sala...
+                </p>
+              ) : (
+                connectedUsers.map((u, idx) => {
+                  const targetInst = targetInstrumentForUser[u.userId || String(idx)] || u.instrument
+                  return (
+                    <div
+                      key={u.userId || idx}
+                      className="p-3 rounded-xl bg-slate-950/60 border border-slate-800 flex items-center justify-between gap-3"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-xs text-slate-200 font-semibold truncate">
+                            {u.user === 'director' ? 'Director de orquesta' : `Músico (${(u.userId || '').slice(0, 8)})`}
+                          </span>
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              u.user === 'director'
+                                ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                                : 'bg-slate-800 text-slate-400'
+                            }`}
+                          >
+                            {u.user}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          Atril actual: <strong className="text-slate-200">{u.instrument}</strong>
+                        </p>
+                      </div>
+
+                      {/* Reassign select & button */}
+                      <div className="flex items-center gap-2 shrink-0">
+                        <select
+                          value={targetInst}
+                          onChange={(e) =>
+                            setTargetInstrumentForUser((prev) => ({
+                              ...prev,
+                              [u.userId || String(idx)]: e.target.value,
+                            }))
+                          }
+                          className="h-8 px-2 rounded-lg bg-slate-800 border border-slate-700 text-xs text-slate-200 focus:outline-none"
+                        >
+                          {availableInstruments.map((inst) => (
+                            <option key={inst} value={inst}>
+                              {inst}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => handleAssignStand(u, targetInst)}
+                          disabled={isReassigning || targetInst === u.instrument}
+                          className="h-8 px-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 disabled:opacity-40 disabled:cursor-not-allowed text-slate-950 font-bold text-xs transition-colors flex items-center gap-1 shadow"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Asignar</span>
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-slate-800 bg-slate-950/50 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowStandManager(false)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs transition-colors"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   )
 }

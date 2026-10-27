@@ -13,6 +13,7 @@
     "@ducanh2912/next-pwa": "^10.2.9",
     "@music-flow/config": "workspace:*",
     "@music-flow/i18n": "workspace:*",
+    "@music-flow/score-analysis": "workspace:*",
     "@music-flow/stores": "workspace:*",
     "@music-flow/stripe": "workspace:*",
     "@music-flow/supabase": "workspace:*",

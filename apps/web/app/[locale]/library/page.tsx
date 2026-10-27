@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Button, Card, CardHeader, CardTitle, CardDescription } from '@music-flow/ui'
+import { Button, Card, CardHeader, CardTitle, CardDescription, Input } from '@music-flow/ui'
 import { createBrowserClient } from '@music-flow/supabase'
 import { Search, Plus, Play, Filter, BookOpen, Clock, ArrowLeft, AlertCircle, Loader2, LogIn, FileText, Trash2, Fingerprint, CheckCircle2 } from 'lucide-react'
 import { createRoomForVersion, fetchLatestVersion } from '../../../lib/rooms'
@@ -84,9 +84,15 @@ export default function LibraryPage({ params }: { params: Promise<{ locale: stri
     [works]
   )
 
+  const normalizeText = (text: string) =>
+    text
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+
   const filteredWorks = works.filter((work) => {
-    const haystack = `${work.title} ${work.composer ?? ''} ${work.catalog_reference ?? ''}`.toLowerCase()
-    const matchesSearch = haystack.includes(search.toLowerCase())
+    const haystack = normalizeText(`${work.title} ${work.composer ?? ''} ${work.catalog_reference ?? ''}`)
+    const matchesSearch = !search.trim() || haystack.includes(normalizeText(search))
     const matchesComposer = composerFilter === 'all' || work.composer === composerFilter
     const matchesKey = keyFilter === 'all' || work.key_signature === keyFilter
     return matchesSearch && matchesComposer && matchesKey
@@ -285,14 +291,13 @@ export default function LibraryPage({ params }: { params: Promise<{ locale: stri
               <>
                 {/* Filters & Search */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-                  <div className="sm:col-span-1 relative">
-                    <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5" />
-                    <input
+                  <div className="sm:col-span-1">
+                    <Input
                       type="text"
                       placeholder="Buscar por título, compositor o catálogo..."
                       value={search}
                       onChange={(e) => setSearch(e.target.value)}
-                      className="w-full h-11 pl-10 pr-4 rounded-xl bg-slate-900 border border-slate-800 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-amber-500 text-sm"
+                      leftIcon={<Search className="w-4 h-4" />}
                     />
                   </div>
 
@@ -356,6 +361,13 @@ export default function LibraryPage({ params }: { params: Promise<{ locale: stri
                           {work.total_measures ? `${work.total_measures} compases` : 'Compases sin definir'}
                         </span>
                         <div className="flex items-center gap-2">
+                          <Link
+                            href={`/${locale}/library/${work.id}`}
+                            title="Editar metadata"
+                            className="p-2 rounded-xl text-slate-400 hover:text-amber-400 hover:bg-slate-850 transition-colors"
+                          >
+                            <FileText className="w-4 h-4" />
+                          </Link>
                           <button
                             type="button"
                             onClick={() => void handleDeleteWork(work.id)}

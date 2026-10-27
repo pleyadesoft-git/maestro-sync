@@ -1,9 +1,10 @@
 'use client'
 
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, Loader2, AlertCircle } from 'lucide-react'
 import { cn } from './utils'
 import { HighlightOverlay } from './HighlightOverlay'
+import { MeasureIndicator, type MeasureIndicatorStyle } from './MeasureIndicator'
 
 export interface ScorePageData {
   id: string
@@ -43,6 +44,8 @@ export interface MusicScoreSheetProps {
   onPageChange?: (pageNumber: number) => void
   viewMode?: 'facsimile' | 'digital'
   onViewModeChange?: (mode: 'facsimile' | 'digital') => void
+  deviceLayout?: 'mobile' | 'tablet' | 'desktop'
+  measureIndicatorStyle?: MeasureIndicatorStyle | 'none'
 }
 
 interface NormalizedBBox {
@@ -109,6 +112,8 @@ export function MusicScoreSheet({
   onPageChange,
   viewMode: propViewMode,
   onViewModeChange,
+  deviceLayout = 'tablet',
+  measureIndicatorStyle = 'subtle',
 }: MusicScoreSheetProps) {
   const stavesHostRef = useRef<HTMLDivElement>(null)
   const systemElsRef = useRef<Array<HTMLDivElement | null>>([])
@@ -172,6 +177,24 @@ export function MusicScoreSheet({
     (currentPage && activeRealSystem.scorePageId === currentPage.id)
 
   const activeSystemOnCurrentPage = isSystemOnCurrentPage ? activeRealSystem : null
+
+  // Cálculo de caja del compás discreto dentro del pentagrama / sistema
+  const activeMeasureBox = useMemo(() => {
+    if (!activeSystemOnCurrentPage || activeMeasure == null) return null
+    const { measureStart, measureCount, bboxX, bboxY, bboxW, bboxH } = activeSystemOnCurrentPage
+    const safeCount = Math.max(1, measureCount)
+    if (activeMeasure < measureStart || activeMeasure >= measureStart + safeCount) {
+      return null
+    }
+    const offset = activeMeasure - measureStart
+    const widthPerMeasure = bboxW / safeCount
+    return {
+      bboxX: bboxX + offset * widthPerMeasure,
+      bboxY,
+      bboxW: widthPerMeasure,
+      bboxH,
+    }
+  }, [activeSystemOnCurrentPage, activeMeasure])
 
   useEffect(() => {
     if (pageContainerRef.current) {
@@ -329,10 +352,18 @@ export function MusicScoreSheet({
         <div className="flex-1 min-h-0 w-full relative flex flex-col items-center justify-center overflow-auto p-2 sm:p-4">
           <div
             ref={pageContainerRef}
-            className="relative inline-block max-w-full shadow-2xl rounded-lg overflow-hidden border border-slate-800 bg-white"
+            className="relative inline-block max-w-full shadow-2xl rounded-lg overflow-hidden border border-slate-800 bg-white transition-transform duration-300"
             style={{
               minHeight: imageLoading ? 420 : undefined,
               minWidth: imageLoading ? 300 : undefined,
+              transform:
+                deviceLayout === 'mobile' && activeSystemOnCurrentPage
+                  ? 'scale(1.35)'
+                  : undefined,
+              transformOrigin:
+                deviceLayout === 'mobile' && activeSystemOnCurrentPage
+                  ? `50% ${Math.min(90, Math.max(10, activeSystemOnCurrentPage.bboxY * 100))}%`
+                  : 'center top',
             }}
           >
             {imageLoading && (
@@ -364,13 +395,25 @@ export function MusicScoreSheet({
               )}
             />
             {!imageLoading && activeSystemOnCurrentPage && (
-              <HighlightOverlay
-                bboxX={activeSystemOnCurrentPage.bboxX}
-                bboxY={activeSystemOnCurrentPage.bboxY}
-                bboxW={activeSystemOnCurrentPage.bboxW}
-                bboxH={activeSystemOnCurrentPage.bboxH}
-                label={overlayLabel}
-              />
+              <>
+                <HighlightOverlay
+                  bboxX={activeSystemOnCurrentPage.bboxX}
+                  bboxY={activeSystemOnCurrentPage.bboxY}
+                  bboxW={activeSystemOnCurrentPage.bboxW}
+                  bboxH={activeSystemOnCurrentPage.bboxH}
+                  label={overlayLabel}
+                />
+                {measureIndicatorStyle !== 'none' && activeMeasureBox && (
+                  <MeasureIndicator
+                    bboxX={activeMeasureBox.bboxX}
+                    bboxY={activeMeasureBox.bboxY}
+                    bboxW={activeMeasureBox.bboxW}
+                    bboxH={activeMeasureBox.bboxH}
+                    measureNumber={activeMeasure ?? activeSystemOnCurrentPage.measureStart}
+                    style={measureIndicatorStyle}
+                  />
+                )}
+              </>
             )}
           </div>
 

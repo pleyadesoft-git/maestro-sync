@@ -20,8 +20,8 @@ This version has breaking changes — APIs, conventions, and file structure may 
 2. **Next.js 16.3 + React 19** — Ambos apps (`web` y `admin`) utilizan App Router en Next.js 16.3.8 y React 19.3.0. Evita patrones obsoletos de Pages Router o Server Components desactualizados. Respeta `React.use()` para unwrapping de `params` y `searchParams` asíncronos.
 3. **Sincronización milimétrica Realtime sin drift** — En MaestroSync, la música y el avance visual de las partituras no toleran lag acumulativo. La sincronización Director ↔ Ejecutantes se basa en Supabase Realtime (Broadcast + Presence) y cálculo de offset temporal (`playback_started_at` + `tempo_bpm` + `requestAnimationFrame`), **no en eventos discretos por compás**.
 4. **Resaltado por pentagrama (`HighlightOverlay`), no por página** — Cada ejecutante ve la partitura completa (o su arreglo) pero el highlight resalta **exclusivamente el pentagrama del instrumento que seleccionó**. Las coordenadas son relativas normalizadas (`bbox_x`, `bbox_y`, `bbox_w`, `bbox_h`).
-5. **MVP sin OMR automatizado** — El marcado de pentagramas y compases en esta fase es **manual** (`is_manually_corrected = true`), realizado por el usuario en el editor de carga (`/upload`). No crear microservicios pesados de OMR hasta que la fase 2 lo requiera expresamente.
-6. **RLS (Row Level Security) 100% activo** — Todas las tablas tienen RLS habilitado. Las partituras y archivos son estrictamente privados por usuario (`owner_id = auth.uid()`). El cliente `createServiceRoleClient()` se reserva exclusivamente para Webhooks de Stripe y operaciones administrativas del backend.
+5. **Detección automatizada con corrección visual asistida** — Al subir una partitura, el sistema detecta de forma automática la metadata (número de páginas, sistemas, pentagramas, barras de compás, instrumentación e importación directa de MusicXML). Si algún dato no puede determinarse con alta confianza, se asiste al usuario para que confirme o ajuste visualmente.
+6. **RLS (Row Level Security) 100% activo** — Todas las tablas tienen RLS habilitado. Las partituras y archivos son estrictamente privados o compartidos vía roles de ensamble. El cliente `createServiceRoleClient()` se reserva exclusivamente para Webhooks de Stripe y operaciones administrativas del backend.
 7. **Diseño para atriles ("Stand-Ready")** — El lenguaje visual prioritario es **Alto Contraste / Dark Mode profundo** (`#0b0f17`, `#0f172a`, acentos ámbar `#f59e0b`), pensado para tablets en atriles musicales bajo condiciones de baja iluminación escénica. Deshabilitar zoom accidental táctil (`userScalable: false`).
 8. **Internacionalización con `next-intl`** — `apps/web` opera bajo rutas localizadas `/[locale]/...`. Los idiomas prioritarios son **Español (`es`)** e **Inglés (`en`)**. Textos de UI no deben hardcodearse; usar los diccionarios en `@music-flow/i18n`.
 9. **Todas las validaciones de los atributos <input /> deben ser mostradas al usuario con CSS moderno de acuerdo a la aplicación y no con las validaciones nativas de HTML.** 
@@ -314,23 +314,51 @@ Definido en `packages/stripe/index.ts`:
 export const PLANS_CONFIG = {
   FREE: {
     code: 'free',
-    name: 'Plan Gratuito',
-    maxScores: 2, // Límite de 2 partituras almacenadas
+    name: 'Prueba Gratuita (15 días)',
+    priceCents: 0,
+    trialDays: 15,
   },
   INDIVIDUAL_MONTHLY: {
     code: 'individual_monthly',
-    name: 'Plan Individual Mensual',
-    maxScores: Infinity,
+    name: 'Músico Independiente (Mensual)',
+    priceCents: 800, // $8/mes
   },
-  ORG_ANNUAL: {
-    code: 'org_annual',
-    name: 'Plan Orquesta / Organización',
-    maxScores: Infinity,
+  INDIVIDUAL_ANNUAL: {
+    code: 'individual_annual',
+    name: 'Músico Independiente (Anual -15%)',
+    priceCents: 8160, // $81.60/año
+  },
+  BAND_MONTHLY: {
+    code: 'band_monthly',
+    name: 'Banda (Mensual)',
+    priceCents: 2200, // $22/mes base + $3/músico
+    seatPriceCents: 300,
+    maxMembers: 15,
+  },
+  BAND_ANNUAL: {
+    code: 'band_annual',
+    name: 'Banda (Anual -15%)',
+    priceCents: 22440, // $224.40/año base + $30.60/músico
+    seatPriceCents: 3060,
+    maxMembers: 15,
+  },
+  ORCHESTRA_MONTHLY: {
+    code: 'orchestra_monthly',
+    name: 'Orquesta Sinfónica/Filarmónica (Mensual)',
+    priceCents: 4500, // $45/mes base + $3/músico
+    seatPriceCents: 300,
+  },
+  ORCHESTRA_ANNUAL: {
+    code: 'orchestra_annual',
+    name: 'Orquesta Sinfónica/Filarmónica (Anual -15%)',
+    priceCents: 45900, // $459/año base + $30.60/músico
+    seatPriceCents: 3060,
   },
 } as const
 ```
 
-- En el plan gratuito, validar el límite de partituras antes de permitir la subida en `/upload`.
+- En el plan gratuito (prueba de 15 días), el usuario disfruta de todas las funciones. Al vencer el período de 15 días, el acceso pasa a solo lectura a menos que se suscriba.
+- Exención de $3 por músico en bandas y orquestas: si el músico participante cuenta con su propia suscripción activa (o prueba vigente de 15 días), no se genera cobro adicional por su atril/asiento.
 - La sincronización y gestión de cuotas de usuario se maneja vía Webhooks de Stripe actualizando la tabla `public.subscriptions`.
 
 ---
