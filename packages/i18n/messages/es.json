@@ -62,5 +62,27 @@
     "fileRequired": "Por favor selecciona una partitura en PDF o imagen",
     "minNumber": "El valor mínimo permitido es {min}",
     "maxNumber": "El valor máximo permitido es {max}"
+  },
+  "pwa": {
+    "installTitle": "Instala MaestroSync",
+    "installStandTitle": "Instala MaestroSync en tu atril",
+    "installDesc": "Disfruta de modo pantalla completa sin barras del navegador, respuesta táctil ultrarrápida y lectura sin interrupciones en vivo.",
+    "installButton": "Instalar aplicación",
+    "installing": "Instalando...",
+    "installedSuccess": "¡MaestroSync se ha instalado correctamente!",
+    "alreadyInstalled": "App instalada en este dispositivo",
+    "dismiss": "Más tarde",
+    "badgePwa": "PWA Stand-Ready",
+    "badgeOffline": "Uso sin conexión",
+    "iosTitle": "Instalación en iPad y iPhone",
+    "iosSubtitle": "Sigue estos sencillos pasos desde Safari:",
+    "iosStep1": "Pulsa el botón Compartir en la barra de Safari",
+    "iosStep2": "Desplázate y selecciona \"Añadir a pantalla de inicio\"",
+    "iosStep3": "Abre MaestroSync desde tu inicio para modo atril completo",
+    "updateTitle": "¡Nueva versión disponible!",
+    "updateDesc": "Se han publicado cambios en MaestroSync. Actualiza ahora para recibir las últimas mejoras y sincronización de partituras.",
+    "updateButton": "Actualizar ahora",
+    "updating": "Actualizando...",
+    "updateLater": "Más tarde"
   }
 }

@@ -7,6 +7,7 @@ import { Button, Card, CardHeader, CardTitle, CardDescription, Input } from '@mu
 import { createBrowserClient, getAdminPublicUrl } from '@music-flow/supabase'
 import { Music, Play, PlusCircle, LogIn, Sparkles, BookOpen, Shield, AlertCircle, Loader2 } from 'lucide-react'
 import { createRoomForVersion, fetchAnyOwnedVersion } from '../../lib/rooms'
+import PWAInstallButton from '../components/PWAInstallButton'
 
 export default function HomePage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = React.use(params)
@@ -69,10 +70,13 @@ export default function HomePage({ params }: { params: Promise<{ locale: string 
       <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-amber-500/10 blur-[140px] rounded-full pointer-events-none" />
       <div className="absolute bottom-10 right-10 w-[400px] h-[400px] bg-amber-600/5 blur-[120px] rounded-full pointer-events-none" />
 
-      {/* Header Badge */}
-      <div className="flex items-center gap-2 px-4 py-2 rounded-full border border-amber-500/30 bg-amber-500/10 text-amber-400 text-xs font-semibold tracking-wider uppercase mb-8 shadow-sm shadow-amber-500/20">
-        <Sparkles className="w-3.5 h-3.5" />
-        <span>Lectura Sincronizada PWA</span>
+      {/* Header Badges & Install Action */}
+      <div className="flex flex-wrap items-center justify-center gap-3 mb-8">
+        <div className="flex items-center gap-2 px-4 py-2 rounded-full border border-amber-500/30 bg-amber-500/10 text-amber-400 text-xs font-semibold tracking-wider uppercase shadow-sm shadow-amber-500/20">
+          <Sparkles className="w-3.5 h-3.5" />
+          <span>Lectura Sincronizada PWA</span>
+        </div>
+        <PWAInstallButton />
       </div>
 
       {/* Hero Title */}

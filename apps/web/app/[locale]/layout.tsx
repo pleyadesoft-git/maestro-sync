@@ -4,6 +4,7 @@ import type { Metadata, Viewport } from 'next'
 import { NextIntlClientProvider } from 'next-intl'
 import { messages } from '@music-flow/i18n'
 import PWAUpdateNotification from '../components/PWAUpdateNotification'
+import PWAInstallPrompt from '../components/PWAInstallPrompt'
 
 export const viewport: Viewport = {
   themeColor: '#0f172a',
@@ -23,9 +24,15 @@ export const metadata: Metadata = {
     statusBarStyle: 'black-translucent',
     title: 'MaestroSync',
   },
+  formatDetection: {
+    telephone: false,
+  },
   icons: {
     icon: '/favicon.ico',
     apple: '/icons/apple-touch-icon.png',
+  },
+  other: {
+    'mobile-web-app-capable': 'yes',
   },
 }
 
@@ -47,8 +54,9 @@ export default async function RootLayout({
       >
         <NextIntlClientProvider locale={locale} messages={currentMessages}>
           {children}
+          <PWAInstallPrompt />
+          <PWAUpdateNotification />
         </NextIntlClientProvider>
-        <PWAUpdateNotification />
       </body>
     </html>
   )

@@ -61,3 +61,6 @@ public/videos/
 
 # turbo cache
 .turbo/cache/
+
+# PWA service worker generated chunks
+**/public/swe-worker-*.js

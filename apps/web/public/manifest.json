@@ -1,15 +1,60 @@
 {
+  "id": "/",
   "name": "MaestroSync — Lectura Sincronizada",
   "short_name": "MaestroSync",
   "description": "App PWA para orquestas y agrupaciones musicales con sincronización y resaltado en tiempo real.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
+  "display_override": ["standalone", "window-controls-overlay", "minimal-ui"],
   "orientation": "any",
   "background_color": "#020617",
   "theme_color": "#0f172a",
   "lang": "es",
+  "dir": "ltr",
   "categories": ["music", "productivity", "utilities"],
+  "prefer_related_applications": false,
+  "shortcuts": [
+    {
+      "name": "Biblioteca de Partituras",
+      "short_name": "Biblioteca",
+      "description": "Explora tu repertorio y partituras",
+      "url": "/library",
+      "icons": [
+        {
+          "src": "/icons/icon-192x192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Unirme a Sala",
+      "short_name": "Unirse",
+      "description": "Conéctate al ensayo en vivo de tu director",
+      "url": "/",
+      "icons": [
+        {
+          "src": "/icons/icon-192x192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Subir Partitura",
+      "short_name": "Subir",
+      "description": "Carga y edita una nueva partitura",
+      "url": "/upload",
+      "icons": [
+        {
+          "src": "/icons/icon-192x192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
+  ],
   "icons": [
     {
       "src": "/icons/icon-192x192.png",

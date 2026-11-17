@@ -62,5 +62,27 @@
     "fileRequired": "Please select a sheet music file (PDF or image)",
     "minNumber": "Minimum allowed value is {min}",
     "maxNumber": "Maximum allowed value is {max}"
+  },
+  "pwa": {
+    "installTitle": "Install MaestroSync",
+    "installStandTitle": "Install MaestroSync on your music stand",
+    "installDesc": "Enjoy full-screen stand mode without browser bars, ultra-fast touch response, and seamless reading in live performances.",
+    "installButton": "Install App",
+    "installing": "Installing...",
+    "installedSuccess": "MaestroSync was installed successfully!",
+    "alreadyInstalled": "App installed on this device",
+    "dismiss": "Later",
+    "badgePwa": "PWA Stand-Ready",
+    "badgeOffline": "Offline Ready",
+    "iosTitle": "Install on iPad & iPhone",
+    "iosSubtitle": "Follow these simple steps in Safari:",
+    "iosStep1": "Tap the Share button in Safari's toolbar",
+    "iosStep2": "Scroll down and select \"Add to Home Screen\"",
+    "iosStep3": "Open MaestroSync from your home screen for full stand mode",
+    "updateTitle": "New version available!",
+    "updateDesc": "Changes have been published to MaestroSync. Update now to receive the latest improvements and score synchronization.",
+    "updateButton": "Update now",
+    "updating": "Updating...",
+    "updateLater": "Later"
   }
 }
