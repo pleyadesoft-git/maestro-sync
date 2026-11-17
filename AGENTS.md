@@ -314,9 +314,9 @@ Definido en `packages/stripe/index.ts`:
 export const PLANS_CONFIG = {
   FREE: {
     code: 'free',
-    name: 'Prueba Gratuita (15 días)',
+    name: 'Prueba Gratuita (7 días)',
     priceCents: 0,
-    trialDays: 15,
+    trialDays: 7,
   },
   SOLO_MONTHLY: {
     code: 'solo_monthly',

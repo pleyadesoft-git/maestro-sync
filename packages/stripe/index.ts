@@ -16,13 +16,13 @@ export function getStripeServerInstance() {
 export const PLANS_CONFIG = {
   FREE: {
     code: 'free',
-    name: 'Prueba Gratuita (15 días)',
+    name: 'Prueba Gratuita (7 días)',
     priceCents: 0,
     seatPriceCents: 0,
     interval: null,
     ensembleType: null,
     maxMembers: null,
-    trialDays: 15,
+    trialDays: 7,
   },
   SOLO_MONTHLY: {
     code: 'solo_monthly',

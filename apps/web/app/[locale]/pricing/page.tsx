@@ -80,7 +80,7 @@ export default function PricingPage() {
 
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-semibold">
             <Sparkles className="w-3.5 h-3.5" />
-            Precios especiales de introducción • 15 días de prueba gratuita
+            Precios especiales de introducción • 7 días de prueba gratuita
           </div>
 
           <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight text-slate-100">

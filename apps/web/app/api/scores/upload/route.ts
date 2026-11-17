@@ -121,7 +121,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 3. Validar vigencia de la prueba gratuita o suscripción activa
-    const trialEnds = profile?.trial_ends_at ? Date.parse(profile.trial_ends_at) : Date.now() + 15 * 86400000
+    const trialEnds = profile?.trial_ends_at ? Date.parse(profile.trial_ends_at) : Date.now() + 7 * 86400000
     const isTrialActive = trialEnds > Date.now()
 
     if (!isTrialActive) {
@@ -140,7 +140,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json(
           {
             ok: false,
-            error: 'Tu período de prueba gratuita de 15 días ha finalizado. Suscríbete a un plan para continuar subiendo partituras.',
+            error: 'Tu período de prueba gratuita de 7 días ha finalizado. Suscríbete a un plan para continuar subiendo partituras.',
           },
           { status: 403 }
         )

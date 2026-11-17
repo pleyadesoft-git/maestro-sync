@@ -18,6 +18,13 @@ import {
   Lock,
   LogOut,
   Loader2,
+  Search,
+  Clock,
+  ShieldCheck,
+  Calendar,
+  Sparkles,
+  ExternalLink,
+  Check,
 } from 'lucide-react'
 
 type AuthPhase = 'loading' | 'anon' | 'forbidden' | 'ready'
@@ -25,7 +32,9 @@ type Notification = AdminOverview['notifications'][number]
 
 export default function AdminDashboard() {
   const [authPhase, setAuthPhase] = useState<AuthPhase>('loading')
-  const [activeTab, setActiveTab] = useState<'overview' | 'users'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'superadmins'>('overview')
+  const [userSearch, setUserSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'trialing' | 'past_due' | 'expired'>('all')
   const [overview, setOverview] = useState<AdminOverview | null>(null)
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [actionError, setActionError] = useState<string | null>(null)
@@ -272,8 +281,7 @@ export default function AdminDashboard() {
           <CardHeader>
             <CardTitle className="text-xl">Acceso al Panel</CardTitle>
             <CardDescription>
-              Acceso exclusivo para las cuentas autorizadas en{' '}
-              <code className="text-amber-400 text-xs font-mono">SUPER_ADMIN_BOOTSTRAP_EMAILS</code>.
+              Acceso exclusivo para las cuentas autorizadas en
             </CardDescription>
           </CardHeader>
 
@@ -338,9 +346,35 @@ export default function AdminDashboard() {
 
   /* ---------------- Dashboard ---------------- */
 
-  const stats = overview?.stats ?? { users: 0, sessions: 0, scores: 0, subscriptions: 0 }
+  const stats = overview?.stats ?? {
+    users: 0,
+    superAdmins: 0,
+    sessions: 0,
+    scores: 0,
+    subscriptions: 0,
+    trialingUsers: 0,
+    pastDueSubscriptions: 0,
+  }
   const users = overview?.users ?? []
+  const superAdmins = overview?.superAdmins ?? []
   const topWorks = overview?.topWorks ?? []
+
+  // Filtrado de usuarios clientes
+  const filteredUsers = users.filter((u) => {
+    if (userSearch.trim()) {
+      const q = userSearch.toLowerCase().trim()
+      const matchesName = u.name.toLowerCase().includes(q)
+      const matchesEmail = u.email.toLowerCase().includes(q)
+      const matchesPlan = u.planName.toLowerCase().includes(q) || u.planCode.toLowerCase().includes(q)
+      if (!matchesName && !matchesEmail && !matchesPlan) return false
+    }
+    if (statusFilter === 'all') return true
+    if (statusFilter === 'active') return u.paymentStatus === 'active'
+    if (statusFilter === 'trialing') return u.paymentStatus === 'trialing'
+    if (statusFilter === 'past_due') return u.paymentStatus === 'past_due'
+    if (statusFilter === 'expired') return u.paymentStatus === 'expired' || u.paymentStatus === 'canceled'
+    return true
+  })
 
   return (
     <main className="min-h-screen bg-slate-950 flex flex-col">
@@ -392,7 +426,7 @@ export default function AdminDashboard() {
         )}
 
         {/* Navigation Tabs */}
-        <div className="flex items-center gap-2 border-b border-slate-800 pb-4">
+        <div className="flex flex-wrap items-center gap-2 border-b border-slate-800 pb-4">
           <Button
             onClick={() => setActiveTab('overview')}
             variant={activeTab === 'overview' ? 'primary' : 'ghost'}
@@ -405,74 +439,118 @@ export default function AdminDashboard() {
             variant={activeTab === 'users' ? 'primary' : 'ghost'}
             size="sm"
           >
-            Usuarios ({users.length})
+            <Users className="w-4 h-4 mr-1.5" />
+            Usuarios Registrados ({users.length})
+          </Button>
+          <Button
+            onClick={() => setActiveTab('superadmins')}
+            variant={activeTab === 'superadmins' ? 'primary' : 'ghost'}
+            size="sm"
+          >
+            <Shield className="w-4 h-4 mr-1.5" />
+            Super-Admins ({superAdmins.length})
           </Button>
         </div>
 
-        {activeTab === 'overview' ? (
+        {/* TAB 1: VISTA GENERAL */}
+        {activeTab === 'overview' && (
           <>
             {/* Metric KPI Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
               <Card className="border-amber-500/20">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                      Suscripciones Activas
+                    <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                      Planes Activos
                     </p>
                     <h3 className="text-2xl font-bold text-slate-100 mt-1">
                       {stats.subscriptions}
                     </h3>
                   </div>
-                  <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-400">
-                    <CreditCard className="w-5 h-5" />
+                  <div className="w-9 h-9 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-400">
+                    <CreditCard className="w-4 h-4" />
                   </div>
                 </div>
-                <p className="mt-3 text-xs text-slate-500">Trialing, activas o con pago pendiente</p>
+                <p className="mt-2 text-[11px] text-slate-500">Suscripciones pagadas al día</p>
+              </Card>
+
+              <Card className="border-sky-500/20">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                      Prueba (7 días)
+                    </p>
+                    <h3 className="text-2xl font-bold text-sky-400 mt-1">
+                      {stats.trialingUsers}
+                    </h3>
+                  </div>
+                  <div className="w-9 h-9 rounded-xl bg-sky-500/10 flex items-center justify-center text-sky-400">
+                    <Clock className="w-4 h-4" />
+                  </div>
+                </div>
+                <p className="mt-2 text-[11px] text-slate-500">Evaluando la plataforma</p>
+              </Card>
+
+              <Card className="border-rose-500/20">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                      Pagos Pendientes
+                    </p>
+                    <h3 className="text-2xl font-bold text-rose-400 mt-1">
+                      {stats.pastDueSubscriptions}
+                    </h3>
+                  </div>
+                  <div className="w-9 h-9 rounded-xl bg-rose-500/10 flex items-center justify-center text-rose-400">
+                    <AlertTriangle className="w-4 h-4" />
+                  </div>
+                </div>
+                <p className="mt-2 text-[11px] text-slate-500">Cobros atrasados / atención</p>
               </Card>
 
               <Card>
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                      Usuarios Totales
+                    <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                      Clientes Registrados
                     </p>
                     <h3 className="text-2xl font-bold text-slate-100 mt-1">{stats.users}</h3>
                   </div>
-                  <div className="w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center text-slate-300">
-                    <Users className="w-5 h-5" />
+                  <div className="w-9 h-9 rounded-xl bg-slate-800 flex items-center justify-center text-slate-300">
+                    <Users className="w-4 h-4" />
                   </div>
                 </div>
-                <p className="mt-3 text-xs text-slate-500">Registrados en la plataforma</p>
+                <p className="mt-2 text-[11px] text-slate-500">Músicos y directores</p>
               </Card>
 
               <Card>
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                      Salas Activas Ahora
+                    <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                      Salas Activas
                     </p>
                     <h3 className="text-2xl font-bold text-amber-400 mt-1">{stats.sessions}</h3>
                   </div>
-                  <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-400">
-                    <Activity className="w-5 h-5 animate-pulse" />
+                  <div className="w-9 h-9 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-400">
+                    <Activity className="w-4 h-4 animate-pulse" />
                   </div>
                 </div>
-                <p className="mt-3 text-xs text-slate-500">Sesiones en estado playing</p>
+                <p className="mt-2 text-[11px] text-slate-500">Sesiones en reproducción</p>
               </Card>
 
               <Card>
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                      Partituras Subidas
+                    <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                      Partituras
                     </p>
                     <h3 className="text-2xl font-bold text-slate-100 mt-1">{stats.scores}</h3>
                   </div>
-                  <div className="w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center text-slate-300">
-                    <Music className="w-5 h-5" />
+                  <div className="w-9 h-9 rounded-xl bg-slate-800 flex items-center justify-center text-slate-300">
+                    <Music className="w-4 h-4" />
                   </div>
                 </div>
-                <p className="mt-3 text-xs text-slate-500">Totales en Storage</p>
+                <p className="mt-2 text-[11px] text-slate-500">Totales en Storage</p>
               </Card>
             </div>
 
@@ -535,14 +613,94 @@ export default function AdminDashboard() {
               </Card>
             </div>
           </>
-        ) : (
-          /* Users Moderation Table */
+        )}
+
+        {/* TAB 2: USUARIOS REGISTRADOS (CLIENTES / SUSCRIPCIONES) */}
+        {activeTab === 'users' && (
           <Card>
             <CardHeader>
-              <CardTitle>Gestión y Moderación de Usuarios</CardTitle>
-              <CardDescription>
-                Suspender o reinstalar cuentas de usuario en la plataforma.
-              </CardDescription>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <CardTitle>Usuarios Registrados y Suscripciones</CardTitle>
+                  <CardDescription>
+                    Monitoreo de músicos y directores registrados, vigencia de su prueba de 7 días, planes contratados y cobros en Stripe.
+                  </CardDescription>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="relative">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Buscar por nombre o correo…"
+                      value={userSearch}
+                      onChange={(e) => setUserSearch(e.target.value)}
+                      className="pl-9 pr-4 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-amber-400 w-64"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Status Filter Pills */}
+              <div className="flex flex-wrap items-center gap-2 pt-4 border-t border-slate-800/60 mt-4">
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter('all')}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                    statusFilter === 'all'
+                      ? 'bg-slate-700 text-slate-100 shadow'
+                      : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
+                  }`}
+                >
+                  Todos ({users.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter('active')}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                    statusFilter === 'active'
+                      ? 'bg-emerald-500 text-slate-950 font-bold shadow'
+                      : 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/30'
+                  }`}
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  Activos de Pago ({users.filter((u) => u.paymentStatus === 'active').length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter('trialing')}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                    statusFilter === 'trialing'
+                      ? 'bg-sky-500 text-slate-950 font-bold shadow'
+                      : 'bg-sky-500/10 text-sky-400 hover:bg-sky-500/20 border border-sky-500/30'
+                  }`}
+                >
+                  <Clock className="w-3.5 h-3.5" />
+                  En Prueba 7d ({users.filter((u) => u.paymentStatus === 'trialing').length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter('past_due')}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                    statusFilter === 'past_due'
+                      ? 'bg-rose-500 text-slate-950 font-bold shadow'
+                      : 'bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/30'
+                  }`}
+                >
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  Pago Pendiente ({users.filter((u) => u.paymentStatus === 'past_due').length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter('expired')}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                    statusFilter === 'expired'
+                      ? 'bg-slate-600 text-slate-100 shadow'
+                      : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
+                  }`}
+                >
+                  Expirados / Cancelados ({users.filter((u) => u.paymentStatus === 'expired' || u.paymentStatus === 'canceled').length})
+                </button>
+              </div>
             </CardHeader>
 
             <div className="overflow-x-auto">
@@ -550,51 +708,278 @@ export default function AdminDashboard() {
                 <thead>
                   <tr className="border-b border-slate-800 text-xs font-semibold text-slate-400 uppercase tracking-wider">
                     <th className="py-3 px-4">Usuario</th>
-                    <th className="py-3 px-4">Plan Actual</th>
-                    <th className="py-3 px-4">Estado Cuenta</th>
+                    <th className="py-3 px-4">Plan</th>
+                    <th className="py-3 px-4">Estatus de Pago / Prueba</th>
+                    <th className="py-3 px-4">Renovación & Facturación</th>
+                    <th className="py-3 px-4">Cuenta</th>
                     <th className="py-3 px-4 text-right">Acción</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
-                  {users.map((user) => (
-                    <tr key={user.id} className="hover:bg-slate-900/50 transition-colors">
-                      <td className="py-4 px-4">
-                        <div className="font-semibold text-slate-200">{user.name}</div>
-                        <div className="text-xs text-slate-400">{user.email}</div>
-                      </td>
-                      <td className="py-4 px-4 font-mono text-xs text-slate-300">{user.plan}</td>
-                      <td className="py-4 px-4">
-                        {user.suspended ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-500/10 text-red-400 border border-red-500/20">
-                            <AlertTriangle className="w-3 h-3" /> Suspendido
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                            <CheckCircle2 className="w-3 h-3" /> Activo
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-4 px-4 text-right">
-                        <Button
-                          onClick={() => toggleSuspendUser(user.id)}
-                          variant={user.suspended ? 'secondary' : 'danger'}
-                          size="sm"
-                          disabled={busyUserId !== null}
-                        >
-                          <UserX className="w-3.5 h-3.5 mr-1" />
-                          {busyUserId === user.id
-                            ? 'Aplicando…'
-                            : user.suspended
-                              ? 'Reinstalar'
-                              : 'Suspender'}
-                        </Button>
+                  {filteredUsers.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="py-8 text-center text-sm text-slate-500">
+                        No se encontraron usuarios que coincidan con los criterios.
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    filteredUsers.map((user) => (
+                      <tr key={user.id} className="hover:bg-slate-900/50 transition-colors">
+                        {/* Usuario */}
+                        <td className="py-4 px-4">
+                          <div className="flex items-center gap-3">
+                            {user.avatarUrl ? (
+                              /* eslint-disable-next-line @next/next/no-img-element */
+                              <img
+                                src={user.avatarUrl}
+                                alt={user.name}
+                                className="w-8 h-8 rounded-full object-cover border border-slate-700"
+                              />
+                            ) : (
+                              <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-xs font-bold text-amber-400">
+                                {user.name[0]?.toUpperCase() || 'U'}
+                              </div>
+                            )}
+                            <div>
+                              <div className="font-semibold text-slate-200">{user.name}</div>
+                              <div className="text-xs text-slate-400 font-mono">{user.email}</div>
+                              <div className="text-[10px] text-slate-500 mt-0.5">
+                                Reg: {new Date(user.createdAt).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* Plan */}
+                        <td className="py-4 px-4">
+                          <span
+                            className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium border ${
+                              user.planCode.startsWith('orchestra')
+                                ? 'bg-purple-500/10 text-purple-300 border-purple-500/30'
+                                : user.planCode.startsWith('band')
+                                  ? 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30'
+                                  : user.planCode.startsWith('solo')
+                                    ? 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+                                    : 'bg-slate-800 text-slate-300 border-slate-700'
+                            }`}
+                          >
+                            {user.planName}
+                          </span>
+                        </td>
+
+                        {/* Estatus de Pago / Prueba */}
+                        <td className="py-4 px-4">
+                          {user.paymentStatus === 'active' && (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                              <CheckCircle2 className="w-3.5 h-3.5" /> Activo (Al día)
+                            </span>
+                          )}
+                          {user.paymentStatus === 'trialing' && (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-sky-500/10 text-sky-400 border border-sky-500/20">
+                              <Clock className="w-3.5 h-3.5" /> Prueba ({user.trialDaysLeft ?? 0}d restantes)
+                            </span>
+                          )}
+                          {user.paymentStatus === 'past_due' && (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                              <AlertTriangle className="w-3.5 h-3.5" /> Pago Pendiente
+                            </span>
+                          )}
+                          {user.paymentStatus === 'expired' && (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-800 text-slate-400 border border-slate-700">
+                              Prueba Expirada
+                            </span>
+                          )}
+                          {user.paymentStatus === 'canceled' && (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-500/10 text-red-400 border border-red-500/20">
+                              Cancelada
+                            </span>
+                          )}
+                          {user.paymentStatus === 'incomplete' && (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                              Incompleto
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Renovación & Facturación */}
+                        <td className="py-4 px-4">
+                          {user.currentPeriodEnd ? (
+                            <div>
+                              <div className="text-xs text-slate-300 font-medium">
+                                Renueva: {new Date(user.currentPeriodEnd).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })}
+                              </div>
+                              {user.cancelAtPeriodEnd && (
+                                <span className="inline-block mt-0.5 text-[10px] text-amber-400 font-semibold bg-amber-500/10 px-1.5 py-0.2 rounded border border-amber-500/20">
+                                  Cancela al fin de ciclo
+                                </span>
+                              )}
+                              {user.stripeCustomerId && (
+                                <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                                  {user.stripeCustomerId}
+                                </div>
+                              )}
+                            </div>
+                          ) : user.paymentStatus === 'trialing' ? (
+                            <div className="text-xs text-slate-400">
+                              Prueba hasta:{' '}
+                              <span className="text-slate-200">
+                                {user.trialEndsAt ? new Date(user.trialEndsAt).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }) : '7 días'}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-slate-500">—</span>
+                          )}
+                        </td>
+
+                        {/* Estado Cuenta */}
+                        <td className="py-4 px-4">
+                          {user.suspended ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-500/10 text-red-400 border border-red-500/20">
+                              <AlertTriangle className="w-3 h-3" /> Suspendido
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                              <CheckCircle2 className="w-3 h-3" /> Activo
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Acción */}
+                        <td className="py-4 px-4 text-right">
+                          <Button
+                            onClick={() => toggleSuspendUser(user.id)}
+                            variant={user.suspended ? 'secondary' : 'danger'}
+                            size="sm"
+                            disabled={busyUserId !== null}
+                          >
+                            <UserX className="w-3.5 h-3.5 mr-1" />
+                            {busyUserId === user.id
+                              ? 'Aplicando…'
+                              : user.suspended
+                                ? 'Reinstalar'
+                                : 'Suspender'}
+                          </Button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
           </Card>
+        )}
+
+        {/* TAB 3: SUPER-ADMINS */}
+        {activeTab === 'superadmins' && (
+          <div className="space-y-6">
+            <Card className="border-amber-500/30 bg-amber-500/5">
+              <div className="flex items-start gap-3">
+                <div className="p-2.5 rounded-xl bg-amber-500/10 text-amber-400 shrink-0">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-100">Equipo de Super-Administración de Plataforma</h3>
+                  <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                    Estas cuentas están autorizadas estrictamente mediante la variable de entorno{' '}
+                    <code className="text-amber-400 font-mono bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800">
+                      SUPER_ADMIN_BOOTSTRAP_EMAILS
+                    </code>
+                    . Tienen acceso total a este panel, pueden iniciar sesión mediante Google OAuth o credenciales autorizadas, y no están sujetas a planes ni suscripciones de cobro.
+                  </p>
+                </div>
+              </div>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Super-Administradores Autorizados</CardTitle>
+                <CardDescription>
+                  Listado de correos con permisos maestros sobre MaestroSync.
+                </CardDescription>
+              </CardHeader>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-800 text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                      <th className="py-3 px-4">Super-Admin</th>
+                      <th className="py-3 px-4">Estatus de Acceso</th>
+                      <th className="py-3 px-4">Último Inicio de Sesión</th>
+                      <th className="py-3 px-4">Fecha de Alta</th>
+                      <th className="py-3 px-4 text-right">Rol</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60">
+                    {superAdmins.map((adminUser, idx) => (
+                      <tr key={adminUser.email || idx} className="hover:bg-slate-900/50 transition-colors">
+                        <td className="py-4 px-4">
+                          <div className="flex items-center gap-3">
+                            {adminUser.avatarUrl ? (
+                              /* eslint-disable-next-line @next/next/no-img-element */
+                              <img
+                                src={adminUser.avatarUrl}
+                                alt={adminUser.name}
+                                className="w-8 h-8 rounded-full object-cover border border-amber-500/40"
+                              />
+                            ) : (
+                              <div className="w-8 h-8 rounded-full bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-xs font-bold text-amber-400">
+                                <Shield className="w-4 h-4" />
+                              </div>
+                            )}
+                            <div>
+                              <div className="font-semibold text-slate-200">{adminUser.name}</div>
+                              <div className="text-xs text-amber-400 font-mono">{adminUser.email}</div>
+                            </div>
+                          </div>
+                        </td>
+
+                        <td className="py-4 px-4">
+                          {adminUser.status === 'active' ? (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                              <CheckCircle2 className="w-3.5 h-3.5" /> Activo / Autenticado
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                              <Clock className="w-3.5 h-3.5" /> Pendiente primer login
+                            </span>
+                          )}
+                        </td>
+
+                        <td className="py-4 px-4 text-xs text-slate-300">
+                          {adminUser.lastSignInAt
+                            ? new Date(adminUser.lastSignInAt).toLocaleString('es-ES', {
+                                day: '2-digit',
+                                month: 'short',
+                                year: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })
+                            : 'Sin registro previo'}
+                        </td>
+
+                        <td className="py-4 px-4 text-xs text-slate-400">
+                          {adminUser.createdAt
+                            ? new Date(adminUser.createdAt).toLocaleDateString('es-ES', {
+                                day: '2-digit',
+                                month: 'short',
+                                year: 'numeric',
+                              })
+                            : '—'}
+                        </td>
+
+                        <td className="py-4 px-4 text-right">
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-mono font-bold bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                            <Shield className="w-3.5 h-3.5" />
+                            Super-Admin
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          </div>
         )}
       </div>
     </main>

@@ -31,3 +31,12 @@ where code = 'individual_monthly';
 update public.plans
 set price_cents = 5100, name = 'Solo anual'
 where code = 'individual_annual';
+
+-- Actualizar plan gratuito a 7 días de prueba
+update public.plans
+set name = 'Prueba gratuita (7 días)', trial_days = 7
+where code = 'free';
+
+-- Ajustar valor por defecto del período de prueba en perfiles a 7 días
+alter table public.profiles
+alter column trial_ends_at set default (now() + interval '7 days');

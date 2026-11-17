@@ -7,17 +7,47 @@ import {
   bootstrapSuperAdmins,
 } from '@music-flow/supabase/server'
 
-type DashboardUser = {
+export type DashboardUser = {
   id: string
   name: string
   email: string
+  avatarUrl: string | null
+  createdAt: string
   suspended: boolean
-  plan: string
+  planCode: string
+  planName: string
+  paymentStatus: 'active' | 'trialing' | 'past_due' | 'canceled' | 'incomplete' | 'expired'
+  isTrialActive: boolean
+  trialDaysLeft: number | null
+  trialEndsAt: string | null
+  currentPeriodEnd: string | null
+  cancelAtPeriodEnd: boolean
+  stripeCustomerId: string | null
+  stripeSubscriptionId: string | null
+}
+
+export type DashboardSuperAdmin = {
+  id: string | null
+  email: string
+  name: string
+  avatarUrl: string | null
+  status: 'active' | 'pending_first_login'
+  lastSignInAt: string | null
+  createdAt: string | null
 }
 
 export type AdminOverview = {
-  stats: { users: number; sessions: number; scores: number; subscriptions: number }
+  stats: {
+    users: number
+    superAdmins: number
+    sessions: number
+    scores: number
+    subscriptions: number
+    trialingUsers: number
+    pastDueSubscriptions: number
+  }
   users: DashboardUser[]
+  superAdmins: DashboardSuperAdmin[]
   topWorks: { title: string; composer: string | null; count: number }[]
   notifications: { id: string; type: string; payload: unknown; created_at: string; is_read: boolean }[]
 }
@@ -96,6 +126,30 @@ export async function runBootstrapSuperAdmins(accessToken: string) {
   return await bootstrapSuperAdmins()
 }
 
+function formatPlanFriendlyName(code: string, rawName: string | null | undefined): string {
+  if (rawName && rawName !== code) return rawName
+  switch (code) {
+    case 'solo_monthly':
+    case 'individual_monthly':
+      return 'Solo ($5 USD/mes)'
+    case 'solo_annual':
+    case 'individual_annual':
+      return 'Solo Anual ($51 USD/año)'
+    case 'band_monthly':
+      return 'Band ($65 USD/mes)'
+    case 'band_annual':
+      return 'Band Anual ($663 USD/año)'
+    case 'orchestra_monthly':
+      return 'Orchestra ($95 USD/mes)'
+    case 'orchestra_annual':
+      return 'Orchestra Anual ($969 USD/año)'
+    case 'free':
+      return 'Prueba Gratuita (7 días)'
+    default:
+      return rawName || code
+  }
+}
+
 export async function getAdminOverview(accessToken: string): Promise<AdminOverview> {
   await requireAdmin(accessToken)
 
@@ -110,13 +164,29 @@ export async function getAdminOverview(accessToken: string): Promise<AdminOvervi
 
   const [profilesRes, sessionsRes, scoresRes, subsRes, notificationsRes, worksRes, sessionsForTop] =
     await Promise.all([
-      admin.from('profiles').select('id, full_name, is_suspended'),
+      admin
+        .from('profiles')
+        .select('id, full_name, avatar_url, is_platform_admin, is_suspended, trial_ends_at, created_at'),
       admin.from('sessions').select('id', { count: 'exact', head: true }),
       admin.from('scores').select('id', { count: 'exact', head: true }),
       admin
         .from('subscriptions')
-        .select('id', { count: 'exact', head: true })
-        .in('status', ['trialing', 'active', 'past_due']),
+        .select(`
+          id,
+          owner_user_id,
+          organization_id,
+          stripe_customer_id,
+          stripe_subscription_id,
+          status,
+          current_period_end,
+          cancel_at_period_end,
+          plans (
+            code,
+            name,
+            price_cents,
+            billing_interval
+          )
+        `),
       admin
         .from('admin_notifications')
         .select('id, type, payload, created_at, is_read')
@@ -129,12 +199,23 @@ export async function getAdminOverview(accessToken: string): Promise<AdminOvervi
   const profiles = (profilesRes.data ?? []) as {
     id: string
     full_name: string | null
+    avatar_url: string | null
+    is_platform_admin: boolean
     is_suspended: boolean
+    trial_ends_at: string | null
+    created_at: string
   }[]
 
-  // Emails desde Supabase Auth (solo posible con service role)
-  let emailsById = new Map<string, string>()
-  let plansByUserId = new Map<string, string>()
+  type AuthUserInfo = {
+    id: string
+    email?: string
+    created_at: string
+    last_sign_in_at?: string | null
+    user_metadata?: { full_name?: string; name?: string; avatar_url?: string; picture?: string }
+  }
+
+  const authUsersById = new Map<string, AuthUserInfo>()
+  const authUsersByEmail = new Map<string, AuthUserInfo>()
   try {
     let page = 1
     const seen = new Set<string>()
@@ -144,36 +225,173 @@ export async function getAdminOverview(accessToken: string): Promise<AdminOvervi
       for (const u of data.users) {
         if (seen.has(u.id)) break
         seen.add(u.id)
-        if (u.email) emailsById.set(u.id, u.email)
+        const info: AuthUserInfo = {
+          id: u.id,
+          email: u.email,
+          created_at: u.created_at,
+          last_sign_in_at: u.last_sign_in_at,
+          user_metadata: u.user_metadata,
+        }
+        authUsersById.set(u.id, info)
+        if (u.email) {
+          authUsersByEmail.set(u.email.trim().toLowerCase(), info)
+        }
       }
       page += 1
       if (data.users.length < 200) break
     }
-  } catch {
-    // Si el listado de Auth falla, se muestran sin email
+  } catch (err) {
+    console.error('Error listando auth users en admin:', err)
   }
 
-  try {
-    const { data: subs } = await admin
-      .from('subscriptions')
-      .select('owner_user_id, plans ( code )')
-      .in('status', ['trialing', 'active', 'past_due'])
-    for (const sub of subs ?? []) {
-      if (sub.owner_user_id) {
-        plansByUserId.set(sub.owner_user_id, (sub.plans as any)?.code ?? 'activo')
+  type SubscriptionWithPlan = {
+    id: string
+    owner_user_id: string | null
+    organization_id: string | null
+    stripe_customer_id: string | null
+    stripe_subscription_id: string | null
+    status: 'trialing' | 'active' | 'past_due' | 'canceled' | 'incomplete'
+    current_period_end: string | null
+    cancel_at_period_end: boolean
+    plans: {
+      code: string
+      name: string | null
+      price_cents: number
+      billing_interval: string | null
+    } | null
+  }
+
+  const subscriptionsByUserId = new Map<string, SubscriptionWithPlan>()
+  for (const sub of (subsRes.data ?? []) as unknown as SubscriptionWithPlan[]) {
+    if (sub.owner_user_id) {
+      const existing = subscriptionsByUserId.get(sub.owner_user_id)
+      if (!existing || sub.status === 'active' || (sub.status === 'trialing' && existing.status !== 'active')) {
+        subscriptionsByUserId.set(sub.owner_user_id, sub)
       }
     }
-  } catch {
-    // sin datos de plan
   }
 
-  const users: DashboardUser[] = profiles.map((p) => ({
-    id: p.id,
-    name: p.full_name || 'Sin nombre',
-    email: emailsById.get(p.id) || '—',
-    suspended: p.is_suspended,
-    plan: plansByUserId.get(p.id) || 'free',
-  }))
+  // Identificar el conjunto de super administradores
+  const superAdminEmails = getSuperAdminEmails()
+  const superAdminSet = new Set<string>(superAdminEmails)
+  const profilesById = new Map(profiles.map((p) => [p.id, p]))
+
+  // Incluir en superAdminSet a cualquier perfil con is_platform_admin = true
+  for (const p of profiles) {
+    if (p.is_platform_admin) {
+      const email = authUsersById.get(p.id)?.email?.toLowerCase()
+      if (email) superAdminSet.add(email)
+    }
+  }
+
+  // Lista de Super Admins para su propia pestaña
+  const superAdmins: DashboardSuperAdmin[] = Array.from(superAdminSet).map((email) => {
+    const authUser = authUsersByEmail.get(email)
+    const profile = authUser ? profilesById.get(authUser.id) : undefined
+
+    const name =
+      profile?.full_name ||
+      (authUser?.user_metadata?.full_name as string) ||
+      (authUser?.user_metadata?.name as string) ||
+      email.split('@')[0] ||
+      'Super Admin'
+
+    const avatarUrl =
+      profile?.avatar_url ||
+      (authUser?.user_metadata?.avatar_url as string) ||
+      (authUser?.user_metadata?.picture as string) ||
+      null
+
+    const hasLoggedIn = Boolean(authUser?.last_sign_in_at || profile)
+
+    return {
+      id: profile?.id || authUser?.id || null,
+      email,
+      name,
+      avatarUrl,
+      status: hasLoggedIn ? 'active' : 'pending_first_login',
+      lastSignInAt: authUser?.last_sign_in_at ?? null,
+      createdAt: profile?.created_at || authUser?.created_at || null,
+    }
+  })
+
+  // Lista de Usuarios Clientes Registrados (excluyendo a Super Admins)
+  const clientProfiles = profiles.filter((p) => {
+    if (p.is_platform_admin) return false
+    const email = authUsersById.get(p.id)?.email?.toLowerCase()
+    if (email && superAdminSet.has(email)) return false
+    return true
+  })
+
+  const nowMs = Date.now()
+
+  const users: DashboardUser[] = clientProfiles.map((p) => {
+    const authUser = authUsersById.get(p.id)
+    const email = authUser?.email || '—'
+    const sub = subscriptionsByUserId.get(p.id)
+
+    // Cálculo del período de prueba de 7 días
+    let isTrialActive = false
+    let trialDaysLeft: number | null = null
+    const trialEndsAt = p.trial_ends_at || null
+
+    if (trialEndsAt) {
+      const trialEndMs = Date.parse(trialEndsAt)
+      const diffMs = trialEndMs - nowMs
+      if (diffMs > 0) {
+        isTrialActive = true
+        trialDaysLeft = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24)))
+      } else {
+        isTrialActive = false
+        trialDaysLeft = 0
+      }
+    }
+
+    let planCode = 'free'
+    let planName = 'Prueba Gratuita (7 días)'
+    let paymentStatus: DashboardUser['paymentStatus'] = 'trialing'
+
+    if (sub && sub.plans) {
+      planCode = sub.plans.code
+      planName = formatPlanFriendlyName(sub.plans.code, sub.plans.name)
+      paymentStatus = sub.status
+    } else {
+      // Sin suscripción en Stripe
+      if (isTrialActive) {
+        paymentStatus = 'trialing'
+        planCode = 'free'
+        planName = 'Prueba Gratuita (7 días)'
+      } else {
+        paymentStatus = 'expired'
+        planCode = 'free'
+        planName = 'Prueba Expirada'
+      }
+    }
+
+    return {
+      id: p.id,
+      name: p.full_name || 'Sin nombre',
+      email,
+      avatarUrl: p.avatar_url,
+      createdAt: p.created_at || authUser?.created_at || new Date().toISOString(),
+      suspended: p.is_suspended,
+      planCode,
+      planName,
+      paymentStatus,
+      isTrialActive,
+      trialDaysLeft,
+      trialEndsAt,
+      currentPeriodEnd: sub?.current_period_end ?? null,
+      cancelAtPeriodEnd: Boolean(sub?.cancel_at_period_end),
+      stripeCustomerId: sub?.stripe_customer_id ?? null,
+      stripeSubscriptionId: sub?.stripe_subscription_id ?? null,
+    }
+  })
+
+  // Métricas financieras y de usuarios
+  const activeSubsCount = users.filter((u) => u.paymentStatus === 'active').length
+  const trialingCount = users.filter((u) => u.paymentStatus === 'trialing').length
+  const pastDueCount = users.filter((u) => u.paymentStatus === 'past_due').length
 
   // Top obras por número de sesiones
   const worksById = new Map(
@@ -206,12 +424,16 @@ export async function getAdminOverview(accessToken: string): Promise<AdminOvervi
 
   return {
     stats: {
-      users: profiles.length,
+      users: users.length,
+      superAdmins: superAdmins.length,
       sessions: sessionsRes.count ?? 0,
       scores: scoresRes.count ?? 0,
-      subscriptions: subsRes.count ?? 0,
+      subscriptions: activeSubsCount,
+      trialingUsers: trialingCount,
+      pastDueSubscriptions: pastDueCount,
     },
     users,
+    superAdmins,
     topWorks,
     notifications: (notificationsRes.data ?? []) as AdminOverview['notifications'],
   }
