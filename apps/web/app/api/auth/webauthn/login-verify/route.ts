@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuthenticationResponse } from '@simplewebauthn/server'
 import { createServiceRoleClient } from '@music-flow/supabase/server'
+import { getExpectedWebAuthnOrigins } from '@music-flow/supabase'
 import {
   getWebAuthnConfig,
   findUserByPasskeyId,
@@ -87,9 +88,7 @@ export async function POST(req: NextRequest) {
       Buffer.from(targetPasskey.publicKey, 'base64url')
     )
 
-    const expectedOrigins = Array.from(
-      new Set([origin, 'http://localhost:3002', 'https://localhost:3002'])
-    )
+    const expectedOrigins = getExpectedWebAuthnOrigins(origin)
 
     const verification = await verifyAuthenticationResponse({
       response,

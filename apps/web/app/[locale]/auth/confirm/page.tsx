@@ -25,7 +25,20 @@ export default function ConfirmPage({ params }: { params: Promise<{ locale: stri
       // 1. Si viene token_hash en searchParams
       const tokenHash = searchParams.get('token_hash')
       const type = searchParams.get('type') as any
-      const next = searchParams.get('next') || `/${locale}/library`
+      const rawNext = searchParams.get('next')
+      let next = `/${locale}/library`
+      if (rawNext) {
+        if (rawNext.startsWith('/')) {
+          next = rawNext
+        } else {
+          try {
+            const parsed = new URL(rawNext)
+            next = `${parsed.pathname}${parsed.search}`
+          } catch {
+            next = `/${locale}/library`
+          }
+        }
+      }
 
       if (tokenHash && type) {
         const { data, error } = await supabase.auth.verifyOtp({

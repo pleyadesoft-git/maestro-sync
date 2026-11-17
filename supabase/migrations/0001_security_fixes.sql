@@ -348,11 +348,15 @@ grant execute on function public.leave_session(uuid) to authenticated;
 do $$
 begin
   if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
-    alter publication supabase_realtime add table public.admin_notifications;
-    alter publication supabase_realtime add table public.sessions;
+    begin
+      alter publication supabase_realtime add table public.admin_notifications;
+    exception when duplicate_object then null;
+    end;
+    begin
+      alter publication supabase_realtime add table public.sessions;
+    exception when duplicate_object then null;
+    end;
   end if;
-exception
-  when duplicate_object then null;
 end $$;
 
 insert into public.instruments (code, family) values
@@ -381,42 +385,48 @@ on conflict (id) do update set
   public = false,
   file_size_limit = 52428800;
 
-alter table storage.objects enable row level security;
-
-drop policy if exists "scores_storage_select" on storage.objects;
-create policy "scores_storage_select" on storage.objects
-  for select using (
-    bucket_id = 'scores'
-    and (
-      auth.uid()::text = (storage.foldername(name))[1]
-      or exists (
-        select 1 from public.scores sc
-        join public.sessions s on s.work_version_id = sc.work_version_id
-        join public.session_participants sp on sp.session_id = s.id and sp.user_id = auth.uid()
-        where sc.file_path = storage.objects.name
+-- En Supabase gestionado, storage.objects ya tiene RLS habilitado por defecto y pertenece a supabase_storage_admin.
+-- Si el rol actual no es propietario, las políticas deben crearse desde el Dashboard (Storage > Policies).
+do $$
+begin
+  drop policy if exists "scores_storage_select" on storage.objects;
+  create policy "scores_storage_select" on storage.objects
+    for select using (
+      bucket_id = 'scores'
+      and (
+        auth.uid()::text = (storage.foldername(name))[1]
+        or exists (
+          select 1 from public.scores sc
+          join public.sessions s on s.work_version_id = sc.work_version_id
+          join public.session_participants sp on sp.session_id = s.id and sp.user_id = auth.uid()
+          where sc.file_path = storage.objects.name
+        )
       )
-    )
-  );
+    );
 
-drop policy if exists "scores_storage_insert" on storage.objects;
-create policy "scores_storage_insert" on storage.objects
-  for insert with check (
-    bucket_id = 'scores'
-    and auth.role() = 'authenticated'
-    and auth.uid()::text = (storage.foldername(name))[1]
-  );
+  drop policy if exists "scores_storage_insert" on storage.objects;
+  create policy "scores_storage_insert" on storage.objects
+    for insert with check (
+      bucket_id = 'scores'
+      and auth.role() = 'authenticated'
+      and auth.uid()::text = (storage.foldername(name))[1]
+    );
 
-drop policy if exists "scores_storage_update" on storage.objects;
-create policy "scores_storage_update" on storage.objects
-  for update using (
-    bucket_id = 'scores'
-    and auth.uid()::text = (storage.foldername(name))[1]
-  );
+  drop policy if exists "scores_storage_update" on storage.objects;
+  create policy "scores_storage_update" on storage.objects
+    for update using (
+      bucket_id = 'scores'
+      and auth.uid()::text = (storage.foldername(name))[1]
+    );
 
-drop policy if exists "scores_storage_delete" on storage.objects;
-create policy "scores_storage_delete" on storage.objects
-  for delete using (
-    bucket_id = 'scores'
-    and auth.uid()::text = (storage.foldername(name))[1]
-  );
+  drop policy if exists "scores_storage_delete" on storage.objects;
+  create policy "scores_storage_delete" on storage.objects
+    for delete using (
+      bucket_id = 'scores'
+      and auth.uid()::text = (storage.foldername(name))[1]
+    );
+exception
+  when insufficient_privilege then
+    raise notice 'Sin privilegios sobre storage.objects (42501): configura las políticas del bucket "scores" desde Storage > Policies en el Dashboard.';
+end $$;
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getStripeServerInstance } from '@music-flow/stripe'
 import { createServiceRoleClient } from '@music-flow/supabase/server'
+import { getPublicOrigin } from '@music-flow/supabase'
 
 export async function POST(req: NextRequest) {
   try {
@@ -30,7 +31,7 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const origin = req.headers.get('origin') || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3002'
+    const origin = getPublicOrigin(req, 3002)
     const stripe = getStripeServerInstance()
 
     const portalSession = await stripe.billingPortal.sessions.create({

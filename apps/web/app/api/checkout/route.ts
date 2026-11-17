@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getStripeServerInstance, PLANS_CONFIG } from '@music-flow/stripe'
 import { createServiceRoleClient } from '@music-flow/supabase/server'
+import { getPublicOrigin } from '@music-flow/supabase'
 
 export async function POST(req: NextRequest) {
   try {
@@ -18,9 +19,16 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json()
     const { planCode, interval = 'month', ensembleName } = body
+    let normalizedPlanCode = planCode
+    if (normalizedPlanCode === 'individual_monthly') normalizedPlanCode = 'solo_monthly'
+    if (normalizedPlanCode === 'individual_annual') normalizedPlanCode = 'solo_annual'
+    if (normalizedPlanCode === 'individual') normalizedPlanCode = interval === 'year' ? 'solo_annual' : 'solo_monthly'
+    if (normalizedPlanCode === 'solo') normalizedPlanCode = interval === 'year' ? 'solo_annual' : 'solo_monthly'
+    if (normalizedPlanCode === 'band') normalizedPlanCode = interval === 'year' ? 'band_annual' : 'band_monthly'
+    if (normalizedPlanCode === 'orchestra') normalizedPlanCode = interval === 'year' ? 'orchestra_annual' : 'orchestra_monthly'
 
     const planKey = Object.keys(PLANS_CONFIG).find(
-      (k) => (PLANS_CONFIG as any)[k].code === planCode
+      (k) => (PLANS_CONFIG as any)[k].code === normalizedPlanCode
     )
     if (!planKey) {
       return NextResponse.json({ ok: false, error: 'Plan seleccionado inválido.' }, { status: 400 })
@@ -81,7 +89,7 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    const origin = req.headers.get('origin') || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3002'
+    const origin = getPublicOrigin(req, 3002)
 
     // 3. Crear sesión de Stripe Checkout con precio dinámico
     const session = await stripe.checkout.sessions.create({
@@ -109,13 +117,13 @@ export async function POST(req: NextRequest) {
       subscription_data: {
         metadata: {
           user_id: user.id,
-          plan_code: planCode,
+          plan_code: planConfig.code,
           organization_id: organizationId,
         },
       },
       metadata: {
         user_id: user.id,
-        plan_code: planCode,
+        plan_code: planConfig.code,
         organization_id: organizationId,
       },
       success_url: `${origin}/es/library?success=subscription_created`,

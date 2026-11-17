@@ -1,7 +1,11 @@
 'use server'
 
 import { createAuthedClient } from '@music-flow/supabase'
-import { createServiceRoleClient } from '@music-flow/supabase/server'
+import {
+  createServiceRoleClient,
+  getSuperAdminEmails,
+  bootstrapSuperAdmins,
+} from '@music-flow/supabase/server'
 
 type DashboardUser = {
   id: string
@@ -20,8 +24,9 @@ export type AdminOverview = {
 
 /**
  * Verifica en el servidor que el llamador es un admin de plataforma autenticado.
- * Se le pasa su propio access token: primero se valida con RLS (anon + token),
- * y solo entonces se usan credenciales de servicio para las escrituras.
+ * REGLA ESTRICTA: Solamente las cuentas de correo especificadas en SUPER_ADMIN_BOOTSTRAP_EMAILS
+ * pueden abrir el panel de administración.
+ * Además, si la cuenta no existe en la base de datos (public.profiles), se agrega automáticamente.
  */
 async function requireAdmin(accessToken: string) {
   if (!accessToken) throw new Error('unauthenticated')
@@ -31,19 +36,76 @@ async function requireAdmin(accessToken: string) {
   const user = userData.user
   if (userError || !user) throw new Error('unauthenticated')
 
-  const { data: profile, error: profileError } = await viewer
+  const userEmail = user.email?.trim().toLowerCase()
+  const superAdminEmails = getSuperAdminEmails()
+
+  // Si SUPER_ADMIN_BOOTSTRAP_EMAILS está configurado, SOLAMENTE esas cuentas pueden acceder
+  if (superAdminEmails.length > 0) {
+    if (!userEmail || !superAdminEmails.includes(userEmail)) {
+      throw new Error('forbidden_unauthorized_email')
+    }
+  }
+
+  const admin = createServiceRoleClient()
+  const { data: profile } = await admin
     .from('profiles')
     .select('is_platform_admin')
     .eq('id', user.id)
     .maybeSingle()
 
-  if (profileError || !profile?.is_platform_admin) throw new Error('forbidden')
+  if (!profile) {
+    // Si la cuenta autorizada inicia sesión (ej. con Google OAuth) y no tiene perfil aún,
+    // se agrega automáticamente a la base de datos con is_platform_admin = true.
+    const defaultName =
+      (user.user_metadata?.full_name as string) ||
+      (user.user_metadata?.name as string) ||
+      userEmail?.split('@')[0] ||
+      'Super Admin'
 
-  return { adminId: user.id, viewer }
+    const avatarUrl =
+      (user.user_metadata?.avatar_url as string) ||
+      (user.user_metadata?.picture as string) ||
+      null
+
+    await admin.from('profiles').insert({
+      id: user.id,
+      full_name: defaultName,
+      avatar_url: avatarUrl,
+      preferred_language: 'es',
+      is_platform_admin: true,
+    })
+  } else if (!profile.is_platform_admin) {
+    // Si ya existía pero no tenía el flag, se le asigna is_platform_admin = true
+    await admin.from('profiles').update({ is_platform_admin: true }).eq('id', user.id)
+  }
+
+  return { adminId: user.id, email: userEmail, viewer }
+}
+
+export async function verifyAdminAccess(accessToken: string): Promise<{
+  ok: boolean
+  userId: string
+  email: string | null
+}> {
+  const { adminId, email } = await requireAdmin(accessToken)
+  return { ok: true, userId: adminId, email: email ?? null }
+}
+
+export async function runBootstrapSuperAdmins(accessToken: string) {
+  await requireAdmin(accessToken)
+  return await bootstrapSuperAdmins()
 }
 
 export async function getAdminOverview(accessToken: string): Promise<AdminOverview> {
   await requireAdmin(accessToken)
+
+  // Asegura en la BD que todas las cuentas de SUPER_ADMIN_BOOTSTRAP_EMAILS existan
+  try {
+    await bootstrapSuperAdmins()
+  } catch (err) {
+    console.error('Error sincronizando super admins en getAdminOverview:', err)
+  }
+
   const admin = createServiceRoleClient()
 
   const [profilesRes, sessionsRes, scoresRes, subsRes, notificationsRes, worksRes, sessionsForTop] =

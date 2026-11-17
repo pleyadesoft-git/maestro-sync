@@ -3,7 +3,7 @@
 import React, { useState } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
-import { Button, Card, CardHeader, CardTitle, CardDescription } from '@music-flow/ui'
+import { Button, Card } from '@music-flow/ui'
 import { createBrowserClient } from '@music-flow/supabase'
 import {
   Check,
@@ -14,6 +14,7 @@ import {
   ShieldCheck,
   Loader2,
   Info,
+  Share2,
 } from 'lucide-react'
 
 export default function PricingPage() {
@@ -76,15 +77,17 @@ export default function PricingPage() {
             <ArrowLeft className="w-4 h-4" />
             <span>Volver a la Biblioteca</span>
           </Link>
+
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-semibold">
             <Sparkles className="w-3.5 h-3.5" />
-            15 días de prueba gratuita incluidos en todas las cuentas
+            Precios especiales de introducción • 15 días de prueba gratuita
           </div>
+
           <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight text-slate-100">
-            Planes diseñados para cada ensamble
+            Planes diseñados para cada músico y ensamble
           </h1>
           <p className="text-slate-400 max-w-2xl mx-auto text-sm sm:text-base">
-            Sincronización musical milimétrica, biblioteca ilimitada y control en tiempo real desde atriles y escenarios.
+            Sincronización milimétrica sin drift, lectura inteligente interactiva y control total desde atriles y escenarios.
           </p>
 
           {/* Billing Interval Toggle with -15% Discount Badge */}
@@ -125,96 +128,117 @@ export default function PricingPage() {
           </div>
         )}
 
-        {/* 3 Modalities Grid */}
+        {/* 3 Tiers Grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-          {/* 1. Músico Independiente */}
+          {/* 1. Solo ($5 USD) */}
           <Card className="flex flex-col justify-between border-slate-800 bg-slate-900/60 hover:border-amber-500/40 transition-all p-6 sm:p-8 space-y-6">
             <div>
-              <div className="p-3 rounded-2xl bg-amber-500/10 text-amber-400 w-fit mb-4">
-                <Music className="w-6 h-6" />
+              <div className="flex items-center justify-between mb-4">
+                <div className="p-3 rounded-2xl bg-amber-500/10 text-amber-400 w-fit">
+                  <Music className="w-6 h-6" />
+                </div>
+                <span className="text-[11px] font-semibold text-amber-400/90 bg-amber-500/10 px-2.5 py-0.5 rounded-full border border-amber-500/20">
+                  Introducción
+                </span>
               </div>
-              <h3 className="text-xl font-bold text-slate-100">Músico Independiente</h3>
-              <p className="text-xs text-slate-400 mt-1">Para solistas y músicos de sesión individuales.</p>
+              <h3 className="text-xl font-bold text-slate-100">Solo</h3>
+              <p className="text-xs text-slate-400 mt-1">Para solistas, estudiantes y músicos independientes.</p>
 
               <div className="mt-6 flex items-baseline gap-1">
                 <span className="text-4xl font-extrabold text-slate-100">
-                  {interval === 'year' ? '$81.60' : '$8'}
+                  {interval === 'year' ? '$51' : '$5'}
                 </span>
                 <span className="text-xs text-slate-400">USD / {interval === 'year' ? 'año' : 'mes'}</span>
               </div>
               {interval === 'year' && (
-                <p className="text-[11px] text-emerald-400 mt-1 font-medium">Equivale a $6.80 USD/mes</p>
+                <p className="text-[11px] text-emerald-400 mt-1 font-medium">Equivale a $4.25 USD/mes</p>
               )}
 
               <ul className="mt-6 space-y-3 text-xs text-slate-300">
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Subida y biblioteca de partituras ilimitadas</span>
+                  <span>Control de reproducción propio (solista)</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Detección automática de sistemas y compases</span>
+                  <span>Subida y biblioteca ilimitada de partituras</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Modo atril de alto contraste para estudio</span>
+                  <span>Detección automática de compases, tempo y armadura</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Exención de cargo de $3 en orquestas y bandas</span>
+                  <span>Cambio de escala (key) y tempo dinámico</span>
+                </li>
+                <li className="flex items-center gap-2">
+                  <Check className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>Compartir partituras y configuración libremente</span>
                 </li>
               </ul>
             </div>
 
             <Button
               variant="outline"
-              onClick={() => handleSubscribe('individual')}
-              disabled={loadingPlan === 'individual'}
+              onClick={() => handleSubscribe('solo')}
+              disabled={loadingPlan === 'solo'}
               className="w-full mt-6"
             >
-              {loadingPlan === 'individual' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Elegir Plan Individual'}
+              {loadingPlan === 'solo' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Elegir Plan Solo'}
             </Button>
           </Card>
 
-          {/* 2. Banda con Director (Popular) */}
+          {/* 2. Band ($65 USD) - Más Popular */}
           <Card className="flex flex-col justify-between border-amber-500/60 bg-gradient-to-b from-amber-950/20 to-slate-900/90 relative p-6 sm:p-8 space-y-6 shadow-xl ring-1 ring-amber-500/30">
             <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-amber-500 text-slate-950 font-bold text-[10px] tracking-wide uppercase">
               Más Popular
             </div>
 
             <div>
-              <div className="p-3 rounded-2xl bg-amber-500/20 text-amber-400 w-fit mb-4">
-                <Users className="w-6 h-6" />
+              <div className="flex items-center justify-between mb-4">
+                <div className="p-3 rounded-2xl bg-amber-500/20 text-amber-400 w-fit">
+                  <Users className="w-6 h-6" />
+                </div>
+                <span className="text-[11px] font-semibold text-amber-400 bg-amber-500/20 px-2.5 py-0.5 rounded-full border border-amber-500/30">
+                  Introducción
+                </span>
               </div>
-              <h3 className="text-xl font-bold text-slate-100">Banda con Director</h3>
-              <p className="text-xs text-slate-400 mt-1">Ideal para grupos, ensambles de cámara y bandas de hasta 15 integrantes.</p>
+              <h3 className="text-xl font-bold text-slate-100">Band</h3>
+              <p className="text-xs text-slate-400 mt-1">Para grupos, bandas y ensambles de 2 a 20 músicos.</p>
 
               <div className="mt-6 flex items-baseline gap-1">
                 <span className="text-4xl font-extrabold text-slate-100">
-                  {interval === 'year' ? '$224.40' : '$22'}
+                  {interval === 'year' ? '$663' : '$65'}
                 </span>
                 <span className="text-xs text-slate-400">USD / {interval === 'year' ? 'año' : 'mes'}</span>
               </div>
+              {interval === 'year' && (
+                <p className="text-[11px] text-emerald-400 mt-1 font-medium">Equivale a $55.25 USD/mes</p>
+              )}
               <p className="text-[11px] text-amber-400 mt-1 font-medium">
-                + {interval === 'year' ? '$30.60' : '$3'} USD por músico sin suscripción propia
+                De 2 a 20 músicos incluidos sin costos extra
               </p>
 
               <ul className="mt-6 space-y-3 text-xs text-slate-300">
                 <li className="flex items-center gap-2 font-semibold text-slate-200">
                   <Check className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Hasta 15 músicos por ensamble</span>
+                  <span>De 2 a 20 músicos por ensamble</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Control de ensayo en vivo para el director</span>
+                  <span>Director con control de la partitura y tempo en vivo</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Asignación de atriles personalizada por músico</span>
+                  <span>Atriles sincronizados milimétricamente en tiempo real</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Sincronización milimétrica Realtime sin drift</span>
+                  <span>Transposición dinámica y seguimiento interactivo</span>
+                </li>
+                <li className="flex items-center gap-2">
+                  <Check className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>Compartir partituras y configuración con cualquier usuario</span>
                 </li>
               </ul>
             </div>
@@ -225,45 +249,57 @@ export default function PricingPage() {
               disabled={loadingPlan === 'band'}
               className="w-full mt-6"
             >
-              {loadingPlan === 'band' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Elegir Plan Banda'}
+              {loadingPlan === 'band' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Elegir Plan Band'}
             </Button>
           </Card>
 
-          {/* 3. Orquesta Sinfónica / Filarmónica */}
+          {/* 3. Orchestra ($95 USD) */}
           <Card className="flex flex-col justify-between border-slate-800 bg-slate-900/60 hover:border-amber-500/40 transition-all p-6 sm:p-8 space-y-6">
             <div>
-              <div className="p-3 rounded-2xl bg-amber-500/10 text-amber-400 w-fit mb-4">
-                <ShieldCheck className="w-6 h-6" />
+              <div className="flex items-center justify-between mb-4">
+                <div className="p-3 rounded-2xl bg-amber-500/10 text-amber-400 w-fit">
+                  <ShieldCheck className="w-6 h-6" />
+                </div>
+                <span className="text-[11px] font-semibold text-amber-400/90 bg-amber-500/10 px-2.5 py-0.5 rounded-full border border-amber-500/20">
+                  Introducción
+                </span>
               </div>
-              <h3 className="text-xl font-bold text-slate-100">Orquesta Sinfónica / Filarmónica</h3>
-              <p className="text-xs text-slate-400 mt-1">Para orquestas completas, conservatorios y grandes ensambles sin límite.</p>
+              <h3 className="text-xl font-bold text-slate-100">Orchestra</h3>
+              <p className="text-xs text-slate-400 mt-1">Para orquestas sinfónicas, filarmónicas y grandes agrupaciones.</p>
 
               <div className="mt-6 flex items-baseline gap-1">
                 <span className="text-4xl font-extrabold text-slate-100">
-                  {interval === 'year' ? '$459' : '$45'}
+                  {interval === 'year' ? '$969' : '$95'}
                 </span>
                 <span className="text-xs text-slate-400">USD / {interval === 'year' ? 'año' : 'mes'}</span>
               </div>
+              {interval === 'year' && (
+                <p className="text-[11px] text-emerald-400 mt-1 font-medium">Equivale a $80.75 USD/mes</p>
+              )}
               <p className="text-[11px] text-amber-400 mt-1 font-medium">
-                + {interval === 'year' ? '$30.60' : '$3'} USD por músico sin suscripción propia
+                Músicos y atriles ilimitados (más de 20 músicos)
               </p>
 
               <ul className="mt-6 space-y-3 text-xs text-slate-300">
                 <li className="flex items-center gap-2 font-semibold text-slate-200">
                   <Check className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Músicos y atriles ilimitados</span>
+                  <span>Músicos y atriles ilimitados sin restricciones</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Partituras generales y particellas por instrumento</span>
+                  <span>Full score para el director y particellas por instrumento</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Mapa de repeticiones y control de director en vivo</span>
+                  <span>Sincronización en tiempo real para orquesta completa</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Soporte prioritario y portal de facturación central</span>
+                  <span>Transposición de partes y modulación en vivo</span>
+                </li>
+                <li className="flex items-center gap-2">
+                  <Check className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>Compartir partituras y configuración con cualquier usuario</span>
                 </li>
               </ul>
             </div>
@@ -274,18 +310,18 @@ export default function PricingPage() {
               disabled={loadingPlan === 'orchestra'}
               className="w-full mt-6"
             >
-              {loadingPlan === 'orchestra' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Elegir Plan Orquesta'}
+              {loadingPlan === 'orchestra' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Elegir Plan Orchestra'}
             </Button>
           </Card>
         </div>
 
-        {/* Nota explicativa de la exención de los $3 */}
+        {/* Nota explicativa de funcionalidades transversales */}
         <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 flex items-start gap-3.5 text-xs text-slate-400">
-          <Info className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+          <Share2 className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
           <div className="space-y-1">
-            <p className="font-semibold text-slate-200">¿Cómo funciona la exención de los $3 USD por músico?</p>
+            <p className="font-semibold text-slate-200">Compartir partituras y configuración en todos los planes</p>
             <p>
-              Si los músicos convocados a tu orquesta o banda ya cuentan con su propia suscripción activa (o su período de prueba de 15 días vigente), <strong>no se cobrará ningún cargo adicional por ellos</strong>. Solo se facturan los atriles ocupados por ejecutantes sin cuenta activa.
+              Tanto en <strong>Solo</strong>, <strong>Band</strong> como en <strong>Orchestra</strong>, puedes compartir tus partituras y sus configuraciones (tonalidad/escala, tempo BPM y notas) con otros músicos registrados sin restricciones.
             </p>
           </div>
         </div>

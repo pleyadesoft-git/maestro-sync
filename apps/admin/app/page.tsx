@@ -33,12 +33,16 @@ export default function AdminDashboard() {
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null)
   const [authLoading, setAuthLoading] = useState(false)
   const [authError, setAuthError] = useState<string | null>(null)
 
   const getToken = async (): Promise<string | null> => {
     const supabase = createBrowserClient()
     const { data } = await supabase.auth.getSession()
+    if (data.session?.user?.email) {
+      setCurrentUserEmail(data.session.user.email)
+    }
     return data.session?.access_token ?? null
   }
 
@@ -50,7 +54,7 @@ export default function AdminDashboard() {
       setAuthPhase('ready')
     } catch (e: any) {
       const message = String(e?.message ?? e)
-      if (message.includes('forbidden')) {
+      if (message.includes('forbidden') || message.includes('unauthorized_email')) {
         setAuthPhase('forbidden')
       } else if (message.includes('unauthenticated')) {
         setAuthPhase('anon')
@@ -71,6 +75,30 @@ export default function AdminDashboard() {
       await loadOverview(token)
     }
     boot()
+  }, [loadOverview])
+
+  // Escuchar cambios de autenticación (ej. retorno de Google OAuth o token refresh)
+  useEffect(() => {
+    const supabase = createBrowserClient()
+    const { data: authSub } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        if (session?.user?.email) {
+          setCurrentUserEmail(session.user.email)
+        }
+        if (session?.access_token) {
+          await loadOverview(session.access_token)
+        }
+      } else if (event === 'SIGNED_OUT') {
+        setCurrentUserEmail(null)
+        setOverview(null)
+        setNotifications([])
+        setAuthPhase('anon')
+      }
+    })
+
+    return () => {
+      authSub.subscription.unsubscribe()
+    }
   }, [loadOverview])
 
   // Realtime: notificaciones de la plataforma (requiere sesión de admin)
@@ -102,6 +130,32 @@ export default function AdminDashboard() {
     }
   }, [authPhase])
 
+  const handleGoogleLogin = async () => {
+    setAuthLoading(true)
+    setAuthError(null)
+    try {
+      const supabase = createBrowserClient()
+      const redirectTo = `${window.location.origin}/auth/callback`
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo,
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'select_account',
+          },
+        },
+      })
+      if (error) {
+        setAuthError(error.message)
+        setAuthLoading(false)
+      }
+    } catch (err: any) {
+      setAuthError(err?.message || 'Error al conectar con Google OAuth.')
+      setAuthLoading(false)
+    }
+  }
+
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     const form = e.currentTarget
@@ -113,7 +167,7 @@ export default function AdminDashboard() {
     setAuthLoading(true)
     setAuthError(null)
     const supabase = createBrowserClient()
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    const { data: signInData, error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) {
       setAuthError(
         error.message.includes('Invalid login credentials')
@@ -122,6 +176,9 @@ export default function AdminDashboard() {
       )
       setAuthLoading(false)
       return
+    }
+    if (signInData.user?.email) {
+      setCurrentUserEmail(signInData.user.email)
     }
     const token = await getToken()
     if (token) await loadOverview(token)
@@ -133,6 +190,7 @@ export default function AdminDashboard() {
     await supabase.auth.signOut()
     setOverview(null)
     setNotifications([])
+    setCurrentUserEmail(null)
     setAuthPhase('anon')
   }
 
@@ -173,15 +231,26 @@ export default function AdminDashboard() {
           <div className="w-14 h-14 rounded-2xl bg-red-500/10 border border-red-500/30 flex items-center justify-center">
             <Shield className="w-7 h-7 text-red-400" />
           </div>
-          <div className="space-y-2">
+          <div className="space-y-2 max-w-md">
             <h1 className="text-xl font-bold text-slate-100">Acceso restringido</h1>
-            <p className="text-sm text-slate-400 max-w-md">
-              Esta cuenta no es administradora de la plataforma (is_platform_admin = false).
+            <p className="text-sm text-slate-400">
+              {currentUserEmail ? (
+                <>
+                  La cuenta <span className="font-semibold text-amber-400">{currentUserEmail}</span> no
+                  tiene permisos para administrar la plataforma.
+                </>
+              ) : (
+                'Esta cuenta no está autorizada para acceder al panel de administración.'
+              )}
+            </p>
+            <p className="text-xs text-slate-500">
+              Solamente los correos autorizados en{' '}
+              <code className="text-amber-400/90 font-mono">SUPER_ADMIN_BOOTSTRAP_EMAILS</code> pueden ingresar.
             </p>
           </div>
           <Button onClick={handleSignOut} variant="secondary">
             <LogOut className="w-4 h-4 mr-2" />
-            Cerrar sesión
+            Cerrar sesión e intentar con otra cuenta
           </Button>
         </main>
       )
@@ -195,15 +264,16 @@ export default function AdminDashboard() {
           </div>
           <div>
             <h1 className="font-bold text-slate-100 text-lg leading-none">MaestroSync Admin</h1>
-            <span className="text-xs text-slate-400">Inicia sesión con una cuenta admin</span>
+            <span className="text-xs text-slate-400">Panel de Administración de Plataforma</span>
           </div>
         </div>
 
-        <Card className="max-w-md w-full">
+        <Card className="max-w-md w-full border-amber-500/20 shadow-2xl shadow-amber-950/20">
           <CardHeader>
             <CardTitle className="text-xl">Acceso al Panel</CardTitle>
             <CardDescription>
-              Requiere una cuenta con <code className="text-amber-400">is_platform_admin</code>.
+              Acceso exclusivo para las cuentas autorizadas en{' '}
+              <code className="text-amber-400 text-xs font-mono">SUPER_ADMIN_BOOTSTRAP_EMAILS</code>.
             </CardDescription>
           </CardHeader>
 
@@ -216,6 +286,27 @@ export default function AdminDashboard() {
               <span>{authError}</span>
             </div>
           )}
+
+          {/* Botón de acceso con Google OAuth */}
+          <div className="px-6 mb-5">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={handleGoogleLogin}
+              disabled={authLoading}
+              className="w-full h-12 border-slate-700 hover:border-amber-400/60 hover:bg-slate-900 flex items-center justify-center gap-3 font-semibold text-slate-100 transition-colors"
+            >
+              <GoogleIcon className="w-5 h-5 shrink-0" />
+              <span>{authLoading ? 'Conectando…' : 'Acceder con Google'}</span>
+            </Button>
+          </div>
+
+          <div className="relative flex items-center justify-center px-6 mb-5">
+            <div className="border-t border-slate-800 w-full" />
+            <span className="bg-slate-900 px-3 text-xs text-slate-500 uppercase tracking-wider absolute">
+              O con Correo y Contraseña
+            </span>
+          </div>
 
           <form noValidate onSubmit={handleLogin} className="space-y-4 px-6 pb-6">
             <Input
@@ -236,7 +327,7 @@ export default function AdminDashboard() {
               onChange={(e) => setPassword(e.target.value)}
               leftIcon={<Lock className="w-4 h-4" />}
             />
-            <Button type="submit" variant="primary" className="w-full" disabled={authLoading}>
+            <Button type="submit" variant="primary" className="w-full h-11 text-sm font-semibold" disabled={authLoading}>
               {authLoading ? 'Verificando…' : 'Entrar'}
             </Button>
           </form>
@@ -266,6 +357,12 @@ export default function AdminDashboard() {
         </div>
 
         <div className="flex items-center gap-3">
+          {currentUserEmail && (
+            <span className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-mono bg-slate-800 border border-slate-700 text-amber-300">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+              {currentUserEmail}
+            </span>
+          )}
           {/* Realtime Notification Counter */}
           <div className="relative">
             <button className="p-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 hover:text-amber-400 transition-colors">
@@ -507,3 +604,27 @@ export default function AdminDashboard() {
 function AlertCircleIcon() {
   return <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
 }
+
+function GoogleIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" width="20" height="20">
+      <path
+        fill="#4285F4"
+        d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.8-2.4 3.65v3h3.86c2.26-2.09 3.68-5.17 3.68-9.09z"
+      />
+      <path
+        fill="#34A853"
+        d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.86-3c-1.08.72-2.45 1.16-4.07 1.16-3.13 0-5.78-2.11-6.73-4.96H1.29v3.09C3.26 21.3 7.31 24 12 24z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M5.27 14.29c-.25-.72-.38-1.49-.38-2.29s.13-1.57.38-2.29V6.62H1.29C.47 8.24 0 10.06 0 12s.47 3.76 1.29 5.38l3.98-3.09z"
+      />
+      <path
+        fill="#EA4335"
+        d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.98 3.09c.95-2.85 3.6-4.96 6.73-4.96z"
+      />
+    </svg>
+  )
+}
+

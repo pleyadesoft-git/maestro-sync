@@ -318,47 +318,48 @@ export const PLANS_CONFIG = {
     priceCents: 0,
     trialDays: 15,
   },
-  INDIVIDUAL_MONTHLY: {
-    code: 'individual_monthly',
-    name: 'Músico Independiente (Mensual)',
-    priceCents: 800, // $8/mes
+  SOLO_MONTHLY: {
+    code: 'solo_monthly',
+    name: 'Solo (Mensual)',
+    priceCents: 500, // $5/mes (introducción)
+    maxMembers: 1,
   },
-  INDIVIDUAL_ANNUAL: {
-    code: 'individual_annual',
-    name: 'Músico Independiente (Anual -15%)',
-    priceCents: 8160, // $81.60/año
+  SOLO_ANNUAL: {
+    code: 'solo_annual',
+    name: 'Solo (Anual -15%)',
+    priceCents: 5100, // $51/año ($4.25/mes)
+    maxMembers: 1,
   },
   BAND_MONTHLY: {
     code: 'band_monthly',
-    name: 'Banda (Mensual)',
-    priceCents: 2200, // $22/mes base + $3/músico
-    seatPriceCents: 300,
-    maxMembers: 15,
+    name: 'Band (Mensual)',
+    priceCents: 6500, // $65/mes (de 2 a 20 músicos)
+    maxMembers: 20,
   },
   BAND_ANNUAL: {
     code: 'band_annual',
-    name: 'Banda (Anual -15%)',
-    priceCents: 22440, // $224.40/año base + $30.60/músico
-    seatPriceCents: 3060,
-    maxMembers: 15,
+    name: 'Band (Anual -15%)',
+    priceCents: 66300, // $663/año ($55.25/mes)
+    maxMembers: 20,
   },
   ORCHESTRA_MONTHLY: {
     code: 'orchestra_monthly',
-    name: 'Orquesta Sinfónica/Filarmónica (Mensual)',
-    priceCents: 4500, // $45/mes base + $3/músico
-    seatPriceCents: 300,
+    name: 'Orchestra (Mensual)',
+    priceCents: 9500, // $95/mes (más de 20 músicos / ilimitado)
+    maxMembers: null,
   },
   ORCHESTRA_ANNUAL: {
     code: 'orchestra_annual',
-    name: 'Orquesta Sinfónica/Filarmónica (Anual -15%)',
-    priceCents: 45900, // $459/año base + $30.60/músico
-    seatPriceCents: 3060,
+    name: 'Orchestra (Anual -15%)',
+    priceCents: 96900, // $969/año ($80.75/mes)
+    maxMembers: null,
   },
 } as const
 ```
 
-- En el plan gratuito (prueba de 15 días), el usuario disfruta de todas las funciones. Al vencer el período de 15 días, el acceso pasa a solo lectura a menos que se suscriba.
-- Exención de $3 por músico en bandas y orquestas: si el músico participante cuenta con su propia suscripción activa (o prueba vigente de 15 días), no se genera cobro adicional por su atril/asiento.
+- Precios de introducción: Solo $5/mes, Band $65/mes (2 a 20 músicos) y Orchestra $95/mes (gran ensamble/ilimitados).
+- En todos los tiers los usuarios pueden compartir sus partituras y configuraciones con cualquier usuario.
+- Prueba gratuita de 15 días incluida en todas las cuentas.
 - La sincronización y gestión de cuotas de usuario se maneja vía Webhooks de Stripe actualizando la tabla `public.subscriptions`.
 
 ---

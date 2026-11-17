@@ -1,10 +1,10 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Button, Card, CardHeader, CardTitle, CardDescription, Input } from '@music-flow/ui'
-import { createBrowserClient } from '@music-flow/supabase'
+import { createBrowserClient, getAdminPublicUrl } from '@music-flow/supabase'
 import { Music, Play, PlusCircle, LogIn, Sparkles, BookOpen, Shield, AlertCircle, Loader2 } from 'lucide-react'
 import { createRoomForVersion, fetchAnyOwnedVersion } from '../../lib/rooms'
 
@@ -16,6 +16,11 @@ export default function HomePage({ params }: { params: Promise<{ locale: string 
   const [roomError, setRoomError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
+  const [adminUrl] = useState(() =>
+    typeof window !== 'undefined'
+      ? getAdminPublicUrl(window.location.origin)
+      : getAdminPublicUrl()
+  )
 
   const handleJoinRoom = (e: React.FormEvent) => {
     e.preventDefault()
@@ -158,7 +163,7 @@ export default function HomePage({ params }: { params: Promise<{ locale: string 
           <span>Mi Biblioteca</span>
         </Link>
         <span>•</span>
-        <a href="http://localhost:3001" target="_blank" rel="noreferrer" className="flex items-center gap-1.5 hover:text-amber-400 transition-colors">
+        <a href={adminUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 hover:text-amber-400 transition-colors">
           <Shield className="w-4 h-4" />
           <span>Panel Admin</span>
         </a>

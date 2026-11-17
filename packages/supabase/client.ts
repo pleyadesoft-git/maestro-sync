@@ -11,8 +11,11 @@ let cachedClient: SupabaseClient<Database> | null = null
 export function createBrowserClient(): SupabaseClient<Database> {
   if (cachedClient) return cachedClient
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL
+  const supabaseAnonKey =
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+    process.env.SUPABASE_PUBLISHABLE_KEY
 
   if (!supabaseUrl || !supabaseAnonKey) {
     throw new Error(
@@ -30,8 +33,11 @@ export function createBrowserClient(): SupabaseClient<Database> {
  * identidad. No contiene claves de servicio: es seguro en el servidor.
  */
 export function createAuthedClient(accessToken: string): SupabaseClient<Database> {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL
+  const supabaseAnonKey =
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+    process.env.SUPABASE_PUBLISHABLE_KEY
 
   if (!supabaseUrl || !supabaseAnonKey) {
     throw new Error(

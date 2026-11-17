@@ -567,17 +567,23 @@ create policy "stand_assignments_member_select" on public.stand_assignments
   for select using (public.is_ensemble_member(organization_id));
 
 -- Storage: miembros del ensamble pueden leer los archivos de obras compartidas
-drop policy if exists "scores_storage_ensemble_select" on storage.objects;
-create policy "scores_storage_ensemble_select" on storage.objects
-  for select using (
-    bucket_id = 'scores'
-    and exists (
-      select 1 from public.scores sc
-      where (sc.file_path = storage.objects.name
-             or exists (select 1 from public.score_pages sp where sp.score_id = sc.id and sp.image_path = storage.objects.name))
-        and public.can_read_work_version(sc.work_version_id)
-    )
-  );
+do $$
+begin
+  drop policy if exists "scores_storage_ensemble_select" on storage.objects;
+  create policy "scores_storage_ensemble_select" on storage.objects
+    for select using (
+      bucket_id = 'scores'
+      and exists (
+        select 1 from public.scores sc
+        where (sc.file_path = storage.objects.name
+               or exists (select 1 from public.score_pages sp where sp.score_id = sc.id and sp.image_path = storage.objects.name))
+          and public.can_read_work_version(sc.work_version_id)
+      )
+    );
+exception
+  when insufficient_privilege then
+    raise notice 'Sin privilegios sobre storage.objects (42501): configura la política "scores_storage_ensemble_select" desde Storage > Policies en el Dashboard.';
+end $$;
 
 -- ---------------------------------------------------------------------
 -- 14. Migración de datos: score_systems.instrument_id → parts + score_staves

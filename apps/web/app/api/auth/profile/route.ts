@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServiceRoleClient } from '@music-flow/supabase/server'
+import { createServiceRoleClient, isSuperAdminEmail } from '@music-flow/supabase/server'
 
 export async function POST(req: NextRequest) {
   try {
@@ -25,7 +25,16 @@ export async function POST(req: NextRequest) {
       .eq('id', user.id)
       .maybeSingle()
 
+    const isSuper = isSuperAdminEmail(user.email)
+
     if (existing) {
+      if (isSuper && !existing.is_platform_admin) {
+        await supabase
+          .from('profiles')
+          .update({ is_platform_admin: true })
+          .eq('id', user.id)
+        existing.is_platform_admin = true
+      }
       return NextResponse.json({ ok: true, profile: existing })
     }
 
@@ -38,7 +47,7 @@ export async function POST(req: NextRequest) {
         id: user.id,
         full_name: defaultName,
         preferred_language: 'es',
-        is_platform_admin: false,
+        is_platform_admin: isSuper,
       })
       .select('*')
       .single()

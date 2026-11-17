@@ -8,9 +8,11 @@
     ".": "./index.ts",
     "./client": "./client.ts",
     "./server": "./server.ts",
-    "./types": "./types.ts"
+    "./types": "./types.ts",
+    "./url": "./url.ts"
   },
   "scripts": {
+    "bootstrap": "node bootstrap.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

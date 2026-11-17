@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceRoleClient } from '@music-flow/supabase/server'
+import { getPublicOrigin } from '@music-flow/supabase'
 import { findUserByEmail } from '../../../../lib/webauthn-server'
 
 export async function POST(req: NextRequest) {
@@ -15,14 +16,7 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const host =
-      req.headers.get('x-forwarded-host') ||
-      req.headers.get('host') ||
-      'localhost:3002'
-    const proto =
-      req.headers.get('x-forwarded-proto') ||
-      (host.startsWith('localhost') ? 'http' : 'https')
-    const origin = req.headers.get('origin') || `${proto}://${host}`
+    const origin = getPublicOrigin(req, 3002)
     const redirectTo = `${origin}/auth/confirm?next=/${locale}/library`
 
     const supabaseAdmin = createServiceRoleClient()
