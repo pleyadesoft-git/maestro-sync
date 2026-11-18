@@ -30,6 +30,7 @@ import {
   performWebAuthnLogin,
   isWebAuthnSupported,
 } from '../../../lib/webauthn-client'
+import { CopyrightNotice } from '../../components/CopyrightNotice'
 
 type AuthMode = 'login' | 'register' | 'confirm_pending'
 type SelectedTier = 'free' | 'solo' | 'band' | 'orchestra'
@@ -567,6 +568,7 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
         'Control de reproducción propio (solista)',
         'Subida y biblioteca ilimitada de partituras',
         'Detección automática de compases y tempo',
+        'Pago proporcionalmente menor si te unes a una Band u Orchestra',
       ],
     },
     {
@@ -846,6 +848,16 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
                   </div>
                 </fieldset>
 
+                <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-4 flex items-start gap-2.5 text-xs text-slate-300">
+                  <Info className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                  <p className="leading-relaxed">
+                    <strong className="text-emerald-300">Descuento proporcional para usuarios Solo:</strong> si te
+                    registras como <strong>Solo</strong> y formas parte de una <strong>Band</strong> (Tier 2) o de una{' '}
+                    <strong>Orchestra</strong> (Tier 3), el pago de tu plan Solo disminuye de forma proporcional, ya que
+                    tu acceso queda cubierto por el plan del ensamble.
+                  </p>
+                </div>
+
                 {/* Sección de Código de Cortesía de 1 Mes */}
                 <div className="rounded-2xl border border-amber-500/30 bg-slate-950/90 p-4 space-y-3">
                   <div className="flex items-center justify-between">
@@ -1044,6 +1056,15 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
                   <span className="bg-slate-900 px-3 text-xs text-slate-500 uppercase tracking-wider absolute">
                     O con Correo y Contraseña
                   </span>
+                </div>
+              )}
+
+              {mode === 'register' && (
+                <div className="mb-5 space-y-1.5">
+                  <CopyrightNotice locale={locale} />
+                  <p className="text-[11px] text-slate-500">
+                    Al crear tu cuenta aceptas que eres responsable de los derechos de autor del material que subas o compartas.
+                  </p>
                 </div>
               )}
 

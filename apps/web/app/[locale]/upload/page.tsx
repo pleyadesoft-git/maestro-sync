@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { Button, Card, CardHeader, CardTitle, CardDescription, HighlightOverlay, Input, MusicScoreSheet } from '@music-flow/ui'
 import { createBrowserClient } from '@music-flow/supabase'
 import { processScoreFile, type ProcessedScoreOutput } from '@/lib/scoreProcessor'
+import { CopyrightNotice } from '../../components/CopyrightNotice'
 import type { DetectedPage, ScoreAnalysisResult } from '@music-flow/score-analysis'
 import {
   Upload,
@@ -54,6 +55,8 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
   const [fileName, setFileName] = useState<string | null>(null)
   const [fileError, setFileError] = useState<string | null>(null)
   const [fileType, setFileType] = useState<'pdf' | 'image' | 'musicxml'>('pdf')
+  const [copyrightAccepted, setCopyrightAccepted] = useState(false)
+  const [consentError, setConsentError] = useState<string | null>(null)
 
   // Partes e instrumentación (Punto 6)
   const [parts, setParts] = useState<Array<{ name: string; instrumentCode?: string; partOrder: number }>>([
@@ -448,6 +451,10 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                 if (!title.trim()) {
                   hasError = true
                 }
+                if (!copyrightAccepted) {
+                  setConsentError('Debes aceptar la declaración de derechos de autor para continuar.')
+                  hasError = true
+                }
 
                 if (!hasError) {
                   setStep('mark')
@@ -682,6 +689,39 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                     </div>
                   ))}
                 </div>
+              </div>
+
+              {/* Aviso de derechos de autor y aceptación obligatoria */}
+              <div className="space-y-2">
+                <CopyrightNotice locale={locale} />
+                <label
+                  className={`flex items-start gap-2.5 rounded-xl border p-3 text-xs cursor-pointer transition-colors ${
+                    consentError
+                      ? 'border-rose-500/70 bg-rose-950/15 text-rose-200'
+                      : 'border-slate-800 bg-slate-950 text-slate-300'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={copyrightAccepted}
+                    onChange={(e) => {
+                      setCopyrightAccepted(e.target.checked)
+                      if (e.target.checked) setConsentError(null)
+                    }}
+                    aria-invalid={consentError ? 'true' : 'false'}
+                    className="accent-amber-500 w-4 h-4 mt-0.5 shrink-0"
+                  />
+                  <span>
+                    Declaro que tengo los derechos o permisos necesarios para usar y compartir esta partitura, y asumo
+                    la responsabilidad total sobre su uso.
+                  </span>
+                </label>
+                {consentError && (
+                  <p role="alert" className="flex items-center gap-1.5 text-xs font-medium text-rose-400">
+                    <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                    <span>{consentError}</span>
+                  </p>
+                )}
               </div>
 
               <Button type="submit" variant="primary" className="w-full" disabled={isAnalyzing}>

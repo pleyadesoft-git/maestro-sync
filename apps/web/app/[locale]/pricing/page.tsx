@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { Button, Card, Input } from '@music-flow/ui'
 import { createBrowserClient } from '@music-flow/supabase'
+import { CopyrightNotice } from '../../components/CopyrightNotice'
 import {
   Check,
   Sparkles,
@@ -243,6 +244,10 @@ export default function PricingPage() {
                   <Check className="w-4 h-4 text-amber-400 shrink-0" />
                   <span>Compartir partituras y configuración libremente</span>
                 </li>
+                <li className="flex items-center gap-2 text-emerald-300">
+                  <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>Pago proporcionalmente menor si te unes a una Band u Orchestra</span>
+                </li>
               </ul>
             </div>
 
@@ -457,6 +462,21 @@ export default function PricingPage() {
             </p>
           </div>
         </div>
+
+        {/* Descuento proporcional para usuarios Solo */}
+        <div className="p-5 rounded-2xl bg-emerald-500/5 border border-emerald-500/30 flex items-start gap-3.5 text-xs text-slate-300">
+          <Users className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <p className="font-semibold text-emerald-300">Descuento proporcional para usuarios Solo</p>
+            <p>
+              Si tienes el plan <strong>Solo</strong> y formas parte de una <strong>Band</strong> (Tier 2) u{' '}
+              <strong>Orchestra</strong> (Tier 3), el pago de tu plan Solo disminuye de forma proporcional, ya que tu
+              acceso queda cubierto por el plan del ensamble.
+            </p>
+          </div>
+        </div>
+
+        <CopyrightNotice locale={locale} />
       </div>
     </main>
   )

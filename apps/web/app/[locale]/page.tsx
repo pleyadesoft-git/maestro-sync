@@ -18,6 +18,7 @@ import {
   Loader2,
   Lock,
   CreditCard,
+  Scale,
 } from 'lucide-react'
 import { createRoomForVersion, fetchAnyOwnedVersion } from '../../lib/rooms'
 import PWAInstallButton from '../components/PWAInstallButton'
@@ -288,6 +289,11 @@ export default function HomePage({ params }: { params: Promise<{ locale: string 
           <Shield className="w-4 h-4" />
           <span>Panel Admin</span>
         </a>
+        <span>•</span>
+        <Link href={`/${locale}/legal`} className="flex items-center gap-1.5 hover:text-amber-400 transition-colors">
+          <Scale className="w-4 h-4" />
+          <span>Aviso Legal</span>
+        </Link>
       </footer>
     </main>
   )
