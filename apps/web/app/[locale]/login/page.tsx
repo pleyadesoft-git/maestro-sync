@@ -958,7 +958,7 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
                     type="button"
                     onClick={handleGoogleLogin}
                     variant="secondary"
-                    className="w-full h-12 border-slate-700 hover:border-amber-400 hover:bg-slate-900 transition-all flex items-center justify-center gap-3 font-semibold text-slate-100"
+                    className="w-full h-12 border-slate-700 hover:border-amber-400 hover:bg-slate-900 transition-all flex items-center justify-center gap-2.5 font-semibold text-slate-100"
                     disabled={loading}
                   >
                     <GoogleIcon className="w-5 h-5 shrink-0" />
@@ -969,10 +969,10 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
                     type="button"
                     onClick={handlePasskeyLogin}
                     variant="secondary"
-                    className="w-full h-12 border-amber-500/40 hover:border-amber-400 hover:bg-amber-500/10 transition-all group"
+                    className="w-full h-12 border-amber-500/40 hover:border-amber-400 hover:bg-amber-500/10 transition-all flex items-center justify-center gap-2.5 group"
                     disabled={loading}
                   >
-                    <Fingerprint className="w-5 h-5 text-amber-400 mr-2.5 transition-transform group-hover:scale-110" />
+                    <Fingerprint className="w-5 h-5 text-amber-400 shrink-0 transition-transform group-hover:scale-110" />
                     <span className="font-semibold text-slate-100">
                       Acceso Rápido con Passkey / Biometría
                     </span>
@@ -989,21 +989,26 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
               ) : (
                 /* En modo registro: Selector de método de registro (Passkey vs Contraseña) */
                 <div className="mb-5 space-y-3">
-                  <div className="grid grid-cols-2 p-1 rounded-xl bg-slate-900 border border-slate-800 text-xs font-semibold">
+                  <div className="grid grid-cols-2 gap-1 p-1 rounded-xl bg-slate-900 border border-slate-800 text-xs font-semibold">
                     <button
                       type="button"
                       onClick={() => {
                         setRegisterMethod('passkey')
                         setErrorMessage(null)
                       }}
-                      className={`py-2 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                      className={`py-2 px-3 rounded-lg transition-all flex items-center justify-center gap-2 leading-tight ${
                         registerMethod === 'passkey'
                           ? 'bg-amber-500 text-slate-950 font-bold shadow'
                           : 'text-slate-400 hover:text-slate-200'
                       }`}
                     >
-                      <Fingerprint className="w-4 h-4" />
-                      <span>Con Passkey</span>
+                      <Fingerprint className="w-4 h-4 shrink-0" />
+                      <span className="flex flex-col items-center leading-tight">
+                        <span className="whitespace-nowrap">Con Passkey</span>
+                        <span className="text-[10px] font-semibold opacity-85 whitespace-nowrap">
+                          (Recomendado)
+                        </span>
+                      </span>
                     </button>
                     <button
                       type="button"
@@ -1011,14 +1016,14 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
                         setRegisterMethod('password')
                         setErrorMessage(null)
                       }}
-                      className={`py-2 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                      className={`py-2 px-3 rounded-lg transition-all flex items-center justify-center gap-2 leading-tight ${
                         registerMethod === 'password'
                           ? 'bg-amber-500 text-slate-950 font-bold shadow'
                           : 'text-slate-400 hover:text-slate-200'
                       }`}
                     >
-                      <Lock className="w-4 h-4" />
-                      <span>Con Contraseña</span>
+                      <Lock className="w-4 h-4 shrink-0" />
+                      <span className="whitespace-nowrap">Con Contraseña</span>
                     </button>
                   </div>
 
@@ -1070,15 +1075,17 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
                   <Button
                     type="submit"
                     variant="primary"
-                    className="w-full mt-2 h-12 text-sm font-semibold"
+                    className="w-full mt-2 h-12 text-sm font-semibold flex items-center justify-center gap-2"
                     disabled={loading}
                   >
-                    <Fingerprint className="w-5 h-5 mr-2" />
-                    {loading
-                      ? 'Activando Biometría…'
-                      : validatedCourtesy
-                        ? `Crear Cuenta con ${validatedCourtesy.planName}`
-                        : 'Crear Cuenta con Passkey / Biometría'}
+                    <Fingerprint className="w-5 h-5 shrink-0" />
+                    <span>
+                      {loading
+                        ? 'Activando Biometría…'
+                        : validatedCourtesy
+                          ? `Crear Cuenta con ${validatedCourtesy.planName}`
+                          : 'Crear Cuenta con Passkey / Biometría'}
+                    </span>
                   </Button>
 
                   {passkeyStatus && (
