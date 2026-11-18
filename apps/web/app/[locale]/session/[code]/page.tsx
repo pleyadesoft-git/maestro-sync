@@ -328,7 +328,10 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
         const user = authData.user
         if (!user) {
           setNeedsAuth(true)
-          throw new Error('Inicia sesión para entrar a la sala de ensayo.')
+          window.location.replace(
+            `/${locale}/login?next=${encodeURIComponent(`/${locale}/session/${code}`)}&reason=auth_required`
+          )
+          return
         }
 
         let sessionRow: any = null

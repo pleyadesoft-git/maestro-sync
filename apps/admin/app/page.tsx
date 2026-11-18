@@ -3,7 +3,15 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { Card, CardHeader, CardTitle, CardDescription, Button, Input } from '@music-flow/ui'
 import { createBrowserClient } from '@music-flow/supabase'
-import { getAdminOverview, setUserSuspended, type AdminOverview } from './admin-actions'
+import {
+  getAdminOverview,
+  setUserSuspended,
+  generateCourtesyCodeAction,
+  revokeCourtesyCodeAction,
+  type AdminOverview,
+  type CourtesyCodeRecord,
+  type CourtesyPlanCode,
+} from './admin-actions'
 import {
   Users,
   CreditCard,
@@ -21,10 +29,11 @@ import {
   Search,
   Clock,
   ShieldCheck,
-  Calendar,
-  Sparkles,
-  ExternalLink,
+  Gift,
+  Copy,
   Check,
+  XCircle,
+  Plus,
 } from 'lucide-react'
 
 type AuthPhase = 'loading' | 'anon' | 'forbidden' | 'ready'
@@ -32,13 +41,21 @@ type Notification = AdminOverview['notifications'][number]
 
 export default function AdminDashboard() {
   const [authPhase, setAuthPhase] = useState<AuthPhase>('loading')
-  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'superadmins'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'courtesies' | 'superadmins'>('overview')
   const [userSearch, setUserSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'trialing' | 'past_due' | 'expired'>('all')
   const [overview, setOverview] = useState<AdminOverview | null>(null)
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [actionError, setActionError] = useState<string | null>(null)
   const [busyUserId, setBusyUserId] = useState<string | null>(null)
+
+  // Estados para Generación de Cortesías de 1 Mes
+  const [courtesyPlan, setCourtesyPlan] = useState<CourtesyPlanCode>('solo_monthly')
+  const [courtesyNote, setCourtesyNote] = useState('')
+  const [generatingCode, setGeneratingCode] = useState(false)
+  const [lastCreatedCode, setLastCreatedCode] = useState<CourtesyCodeRecord | null>(null)
+  const [copiedCode, setCopiedCode] = useState<string | null>(null)
+  const [revokingCodeId, setRevokingCodeId] = useState<string | null>(null)
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -222,6 +239,53 @@ export default function AdminDashboard() {
     }
   }
 
+  const handleGenerateCourtesyCode = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (generatingCode) return
+    setActionError(null)
+    setGeneratingCode(true)
+    try {
+      const token = await getToken()
+      if (!token) throw new Error('Sesión expirada. Vuelve a iniciar sesión.')
+      const created = await generateCourtesyCodeAction(token, courtesyPlan, courtesyNote)
+      setLastCreatedCode(created)
+      setCourtesyNote('')
+      const data = await getAdminOverview(token)
+      setOverview(data)
+    } catch (e: any) {
+      setActionError(String(e?.message ?? e))
+    } finally {
+      setGeneratingCode(false)
+    }
+  }
+
+  const handleRevokeCourtesyCode = async (codeId: string) => {
+    if (revokingCodeId) return
+    setActionError(null)
+    setRevokingCodeId(codeId)
+    try {
+      const token = await getToken()
+      if (!token) throw new Error('Sesión expirada. Vuelve a iniciar sesión.')
+      await revokeCourtesyCodeAction(token, codeId)
+      const data = await getAdminOverview(token)
+      setOverview(data)
+    } catch (e: any) {
+      setActionError(String(e?.message ?? e))
+    } finally {
+      setRevokingCodeId(null)
+    }
+  }
+
+  const handleCopyCode = async (code: string) => {
+    try {
+      await navigator.clipboard.writeText(code)
+      setCopiedCode(code)
+      setTimeout(() => setCopiedCode(null), 2500)
+    } catch {
+      // fallback
+    }
+  }
+
   /* ---------------- Puerta de autenticación ---------------- */
 
   if (authPhase === 'loading') {
@@ -268,11 +332,19 @@ export default function AdminDashboard() {
     return (
       <main className="min-h-screen bg-slate-950 flex flex-col items-center justify-center gap-6 px-6">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400">
-            <Shield className="w-5 h-5" />
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/icons/icon-192x192.png"
+            alt="MaestroSync Logo"
+            className="w-11 h-11 rounded-xl border border-amber-500/30 shadow-lg shadow-amber-950/30"
+          />
           <div>
-            <h1 className="font-bold text-slate-100 text-lg leading-none">MaestroSync Admin</h1>
+            <h1 className="font-extrabold text-slate-100 text-xl leading-none tracking-tight">
+              Maestro<span className="text-amber-500">Sync</span>{' '}
+              <span className="text-xs font-semibold text-amber-400/90 uppercase tracking-wider ml-1">
+                Admin
+              </span>
+            </h1>
             <span className="text-xs text-slate-400">Panel de Administración de Plataforma</span>
           </div>
         </div>
@@ -281,7 +353,7 @@ export default function AdminDashboard() {
           <CardHeader>
             <CardTitle className="text-xl">Acceso al Panel</CardTitle>
             <CardDescription>
-              Acceso exclusivo para las cuentas autorizadas en
+              Acceso exclusivo para las cuentas autorizadas en MaestroSync.
             </CardDescription>
           </CardHeader>
 
@@ -354,9 +426,12 @@ export default function AdminDashboard() {
     subscriptions: 0,
     trialingUsers: 0,
     pastDueSubscriptions: 0,
+    courtesyCodesActive: 0,
+    courtesyCodesRedeemed: 0,
   }
   const users = overview?.users ?? []
   const superAdmins = overview?.superAdmins ?? []
+  const courtesyCodes = overview?.courtesyCodes ?? []
   const topWorks = overview?.topWorks ?? []
 
   // Filtrado de usuarios clientes
@@ -381,11 +456,19 @@ export default function AdminDashboard() {
       {/* Top Navbar */}
       <header className="h-16 border-b border-slate-800 bg-slate-900/90 px-8 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 font-bold">
-            <Shield className="w-5 h-5" />
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/icons/icon-192x192.png"
+            alt="MaestroSync Logo"
+            className="w-9 h-9 rounded-xl border border-amber-500/30 shadow-md shadow-amber-950/30"
+          />
           <div>
-            <h1 className="font-bold text-slate-100 text-lg leading-none">MaestroSync Admin</h1>
+            <h1 className="font-extrabold text-slate-100 text-lg leading-none tracking-tight">
+              Maestro<span className="text-amber-500">Sync</span>{' '}
+              <span className="text-xs font-semibold text-amber-400/90 uppercase tracking-wider ml-1">
+                Admin
+              </span>
+            </h1>
             <span className="text-xs text-slate-400">Panel de Administración de Plataforma</span>
           </div>
         </div>
@@ -399,7 +482,7 @@ export default function AdminDashboard() {
           )}
           {/* Realtime Notification Counter */}
           <div className="relative">
-            <button className="p-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 hover:text-amber-400 transition-colors">
+            <button type="button" className="p-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 hover:text-amber-400 transition-colors">
               <Bell className="w-5 h-5" />
               <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-amber-500 text-slate-950 text-[10px] font-bold flex items-center justify-center">
                 {notifications.filter((n) => !n.is_read).length}
@@ -441,6 +524,14 @@ export default function AdminDashboard() {
           >
             <Users className="w-4 h-4 mr-1.5" />
             Usuarios Registrados ({users.length})
+          </Button>
+          <Button
+            onClick={() => setActiveTab('courtesies')}
+            variant={activeTab === 'courtesies' ? 'primary' : 'ghost'}
+            size="sm"
+          >
+            <Gift className="w-4 h-4 mr-1.5" />
+            Cortesías 1 Mes ({courtesyCodes.length})
           </Button>
           <Button
             onClick={() => setActiveTab('superadmins')}
@@ -770,8 +861,22 @@ export default function AdminDashboard() {
                         {/* Estatus de Pago / Prueba */}
                         <td className="py-4 px-4">
                           {user.paymentStatus === 'active' && (
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                              <CheckCircle2 className="w-3.5 h-3.5" /> Activo (Al día)
+                            <span
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
+                                user.isCourtesy
+                                  ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                                  : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                              }`}
+                            >
+                              {user.isCourtesy ? (
+                                <>
+                                  <Gift className="w-3.5 h-3.5" /> Cortesía 1 Mes
+                                </>
+                              ) : (
+                                <>
+                                  <CheckCircle2 className="w-3.5 h-3.5" /> Activo (Al día)
+                                </>
+                              )}
                             </span>
                           )}
                           {user.paymentStatus === 'trialing' && (
@@ -786,7 +891,7 @@ export default function AdminDashboard() {
                           )}
                           {user.paymentStatus === 'expired' && (
                             <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-800 text-slate-400 border border-slate-700">
-                              Prueba Expirada
+                              {user.isCourtesy ? 'Cortesía Expirada' : 'Prueba Expirada'}
                             </span>
                           )}
                           {user.paymentStatus === 'canceled' && (
@@ -806,16 +911,21 @@ export default function AdminDashboard() {
                           {user.currentPeriodEnd ? (
                             <div>
                               <div className="text-xs text-slate-300 font-medium">
-                                Renueva: {new Date(user.currentPeriodEnd).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                {user.isCourtesy ? 'Vence:' : 'Renueva:'}{' '}
+                                {new Date(user.currentPeriodEnd).toLocaleDateString('es-ES', {
+                                  day: '2-digit',
+                                  month: 'short',
+                                  year: 'numeric',
+                                })}
                               </div>
-                              {user.cancelAtPeriodEnd && (
+                              {user.cancelAtPeriodEnd && !user.isCourtesy && (
                                 <span className="inline-block mt-0.5 text-[10px] text-amber-400 font-semibold bg-amber-500/10 px-1.5 py-0.2 rounded border border-amber-500/20">
                                   Cancela al fin de ciclo
                                 </span>
                               )}
                               {user.stripeCustomerId && (
                                 <div className="text-[10px] text-slate-500 font-mono mt-0.5">
-                                  {user.stripeCustomerId}
+                                  {user.isCourtesy ? user.stripeSubscriptionId : user.stripeCustomerId}
                                 </div>
                               )}
                             </div>
@@ -867,6 +977,290 @@ export default function AdminDashboard() {
               </table>
             </div>
           </Card>
+        )}
+
+        {/* TAB 3: CORTESÍAS DE 1 MES */}
+        {activeTab === 'courtesies' && (
+          <div className="space-y-6">
+            <Card className="border-amber-500/30 bg-slate-900/80">
+              <CardHeader>
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-xl bg-amber-500/15 text-amber-400">
+                    <Gift className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <CardTitle>Generar Código de Cortesía (1 Mes)</CardTitle>
+                    <CardDescription>
+                      Genera un código de uso único que otorga 30 días gratuitos en el tier seleccionado (Solo, Band u Orchestra).
+                    </CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+
+              <form onSubmit={handleGenerateCourtesyCode} className="space-y-5">
+                <fieldset className="space-y-2.5">
+                  <legend className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                    1. Selecciona el Tier de la Cortesía (30 días)
+                  </legend>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+                    {[
+                      {
+                        code: 'solo_monthly' as CourtesyPlanCode,
+                        title: 'Solo',
+                        subtitle: 'Solistas y músicos independientes ($5/mes)',
+                        badge: '1 Músico',
+                      },
+                      {
+                        code: 'band_monthly' as CourtesyPlanCode,
+                        title: 'Band',
+                        subtitle: 'Bandas y ensambles ($65/mes)',
+                        badge: '2 a 20 Músicos',
+                      },
+                      {
+                        code: 'orchestra_monthly' as CourtesyPlanCode,
+                        title: 'Orchestra',
+                        subtitle: 'Orquesta completa ($95/mes)',
+                        badge: 'Ilimitado',
+                      },
+                    ].map((tier) => {
+                      const selected = courtesyPlan === tier.code
+                      return (
+                        <label
+                          key={tier.code}
+                          className={`cursor-pointer rounded-xl border p-4 transition-all flex flex-col justify-between gap-2 ${
+                            selected
+                              ? 'border-amber-500 bg-amber-500/10 ring-1 ring-amber-500/40'
+                              : 'border-slate-800 bg-slate-950/70 hover:border-slate-700'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="radio"
+                                name="courtesy_tier"
+                                value={tier.code}
+                                checked={selected}
+                                onChange={() => setCourtesyPlan(tier.code)}
+                                className="accent-amber-500 w-4 h-4"
+                              />
+                              <span className="font-bold text-slate-100 text-sm">{tier.title}</span>
+                            </div>
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                              {tier.badge}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-400 pl-6">{tier.subtitle}</p>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </fieldset>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
+                  <div className="sm:col-span-2">
+                    <Input
+                      label="Nota o Destinatario (Opcional)"
+                      type="text"
+                      placeholder="Ej. Cortesía Director Invitado Filarmónica / Festival..."
+                      value={courtesyNote}
+                      onChange={(e) => setCourtesyNote(e.target.value)}
+                    />
+                  </div>
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    disabled={generatingCode}
+                    className="h-11 w-full font-semibold"
+                  >
+                    {generatingCode ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Generando…
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="w-4 h-4 mr-1.5" />
+                        Generar Código (1 Mes)
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </form>
+
+              {lastCreatedCode && (
+                <div
+                  role="status"
+                  className="mt-6 p-4 rounded-xl border border-emerald-500/40 bg-emerald-950/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                >
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400">
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>¡Código de cortesía de 1 mes generado con éxito!</span>
+                    </div>
+                    <p className="text-xs text-slate-300">
+                      Tier: <strong>{lastCreatedCode.planName}</strong> • Compártelo con el usuario para que lo canjee al registrarse o en la sección de Planes.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <code className="px-3.5 py-2 rounded-xl bg-slate-950 border border-amber-500/40 font-mono text-base font-extrabold text-amber-400 tracking-wider">
+                      {lastCreatedCode.code}
+                    </code>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => handleCopyCode(lastCreatedCode.code)}
+                    >
+                      {copiedCode === lastCreatedCode.code ? (
+                        <>
+                          <Check className="w-4 h-4 mr-1 text-emerald-400" />
+                          Copiado
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-4 h-4 mr-1" />
+                          Copiar
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <CardTitle>Historial de Códigos de Cortesía</CardTitle>
+                    <CardDescription>
+                      {stats.courtesyCodesActive} disponibles para canje • {stats.courtesyCodesRedeemed} canjeados
+                    </CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-800 text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                      <th className="py-3 px-4">Código</th>
+                      <th className="py-3 px-4">Tier (1 Mes)</th>
+                      <th className="py-3 px-4">Estado</th>
+                      <th className="py-3 px-4">Nota / Destinatario</th>
+                      <th className="py-3 px-4">Canjeado Por</th>
+                      <th className="py-3 px-4">Creado</th>
+                      <th className="py-3 px-4 text-right">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60">
+                    {courtesyCodes.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="py-8 text-center text-sm text-slate-500">
+                          Aún no se han generado códigos de cortesía.
+                        </td>
+                      </tr>
+                    ) : (
+                      courtesyCodes.map((c) => (
+                        <tr key={c.id} className="hover:bg-slate-900/50 transition-colors">
+                          <td className="py-3.5 px-4">
+                            <div className="flex items-center gap-2">
+                              <code className="font-mono font-bold text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/20 text-xs">
+                                {c.code}
+                              </code>
+                              <button
+                                type="button"
+                                onClick={() => handleCopyCode(c.code)}
+                                title="Copiar código"
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-amber-400 hover:bg-slate-800 transition-colors"
+                              >
+                                {copiedCode === c.code ? (
+                                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                ) : (
+                                  <Copy className="w-3.5 h-3.5" />
+                                )}
+                              </button>
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-4 text-xs font-semibold text-slate-200">
+                            {c.planName}
+                          </td>
+                          <td className="py-3.5 px-4">
+                            {c.status === 'active' && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                <CheckCircle2 className="w-3 h-3" /> Disponible
+                              </span>
+                            )}
+                            {c.status === 'redeemed' && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-sky-500/10 text-sky-400 border border-sky-500/20">
+                                <Gift className="w-3 h-3" /> Canjeado
+                              </span>
+                            )}
+                            {(c.status === 'revoked' || c.status === 'expired') && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-800 text-slate-400 border border-slate-700">
+                                <XCircle className="w-3 h-3" /> Revocado
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3.5 px-4 text-xs text-slate-300">
+                            {c.note || <span className="text-slate-500">—</span>}
+                          </td>
+                          <td className="py-3.5 px-4 text-xs">
+                            {c.status === 'redeemed' ? (
+                              <div>
+                                <div className="font-semibold text-slate-200">
+                                  {c.redeemedByName || c.redeemedByEmail || 'Usuario registrado'}
+                                </div>
+                                {c.redeemedByEmail && (
+                                  <div className="text-[11px] text-slate-400 font-mono">
+                                    {c.redeemedByEmail}
+                                  </div>
+                                )}
+                                {c.redeemedAt && (
+                                  <div className="text-[10px] text-slate-500">
+                                    {new Date(c.redeemedAt).toLocaleDateString('es-ES', {
+                                      day: '2-digit',
+                                      month: 'short',
+                                      year: 'numeric',
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-slate-500">Sin canjear</span>
+                            )}
+                          </td>
+                          <td className="py-3.5 px-4 text-xs text-slate-400">
+                            {new Date(c.createdAt).toLocaleDateString('es-ES', {
+                              day: '2-digit',
+                              month: 'short',
+                              year: 'numeric',
+                            })}
+                          </td>
+                          <td className="py-3.5 px-4 text-right">
+                            {c.status === 'active' ? (
+                              <Button
+                                type="button"
+                                variant="danger"
+                                size="sm"
+                                disabled={revokingCodeId === c.id}
+                                onClick={() => handleRevokeCourtesyCode(c.id)}
+                              >
+                                <XCircle className="w-3.5 h-3.5 mr-1" />
+                                {revokingCodeId === c.id ? 'Revocando…' : 'Revocar'}
+                              </Button>
+                            ) : (
+                              <span className="text-xs text-slate-600">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          </div>
         )}
 
         {/* TAB 3: SUPER-ADMINS */}

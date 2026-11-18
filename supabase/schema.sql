@@ -253,6 +253,25 @@ create table public.moderation_actions (
 alter table public.profiles
   add column is_suspended boolean not null default false;
 
+create table public.courtesy_codes (
+  id uuid primary key default gen_random_uuid(),
+  code text unique not null,
+  plan_code text not null check (plan_code in ('solo_monthly', 'band_monthly', 'orchestra_monthly')),
+  duration_days int not null default 30,
+  status text not null default 'active' check (status in ('active', 'redeemed', 'revoked', 'expired')),
+  note text,
+  created_by uuid references public.profiles(id) on delete set null,
+  redeemed_by uuid references public.profiles(id) on delete set null,
+  redeemed_at timestamptz,
+  expires_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index idx_courtesy_codes_code on public.courtesy_codes(code);
+create index idx_courtesy_codes_status on public.courtesy_codes(status);
+create index idx_courtesy_codes_redeemed_by on public.courtesy_codes(redeemed_by);
+
 -- =====================================================================
 -- 6. TRIGGER GENÉRICO updated_at
 -- =====================================================================
@@ -270,7 +289,7 @@ declare t text;
 begin
   foreach t in array array[
     'profiles','works','work_versions','scores','sessions',
-    'organizations','subscriptions'
+    'organizations','subscriptions','courtesy_codes'
   ]
   loop
     execute format(
@@ -299,6 +318,7 @@ alter table public.plans enable row level security;
 alter table public.subscriptions enable row level security;
 alter table public.admin_notifications enable row level security;
 alter table public.moderation_actions enable row level security;
+alter table public.courtesy_codes enable row level security;
 
 -- Catálogos: legibles por todos, escribibles solo por backend (service role)
 create policy "instruments_select_all" on public.instruments
@@ -505,6 +525,13 @@ create policy "admin_notifications_admin_only" on public.admin_notifications
 
 create policy "moderation_actions_admin_only" on public.moderation_actions
   for all using (public.is_platform_admin());
+
+create policy "courtesy_codes_admin_all" on public.courtesy_codes
+  for all using (public.is_platform_admin())
+  with check (public.is_platform_admin());
+
+create policy "courtesy_codes_redeemer_select" on public.courtesy_codes
+  for select using (redeemed_by = auth.uid());
 
 -- =====================================================================
 -- 8. TRIGGERS DE ONBOARDING Y PROTECCIÓN DE PRIVILEGIOS

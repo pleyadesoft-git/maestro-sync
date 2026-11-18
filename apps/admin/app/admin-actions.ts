@@ -5,7 +5,14 @@ import {
   createServiceRoleClient,
   getSuperAdminEmails,
   bootstrapSuperAdmins,
+  createCourtesyCode,
+  listCourtesyCodes,
+  revokeCourtesyCode,
+  type CourtesyCodeRecord,
+  type CourtesyPlanCode,
 } from '@music-flow/supabase/server'
+
+export type { CourtesyCodeRecord, CourtesyPlanCode }
 
 export type DashboardUser = {
   id: string
@@ -17,6 +24,7 @@ export type DashboardUser = {
   planCode: string
   planName: string
   paymentStatus: 'active' | 'trialing' | 'past_due' | 'canceled' | 'incomplete' | 'expired'
+  isCourtesy: boolean
   isTrialActive: boolean
   trialDaysLeft: number | null
   trialEndsAt: string | null
@@ -45,9 +53,12 @@ export type AdminOverview = {
     subscriptions: number
     trialingUsers: number
     pastDueSubscriptions: number
+    courtesyCodesActive: number
+    courtesyCodesRedeemed: number
   }
   users: DashboardUser[]
   superAdmins: DashboardSuperAdmin[]
+  courtesyCodes: CourtesyCodeRecord[]
   topWorks: { title: string; composer: string | null; count: number }[]
   notifications: { id: string; type: string; payload: unknown; created_at: string; is_read: boolean }[]
 }
@@ -350,11 +361,20 @@ export async function getAdminOverview(accessToken: string): Promise<AdminOvervi
     let planCode = 'free'
     let planName = 'Prueba Gratuita (7 días)'
     let paymentStatus: DashboardUser['paymentStatus'] = 'trialing'
+    const isCourtesy = Boolean(
+      sub &&
+        (sub.stripe_customer_id === 'courtesy_1m' ||
+          sub.stripe_subscription_id?.startsWith('courtesy_'))
+    )
 
     if (sub && sub.plans) {
       planCode = sub.plans.code
-      planName = formatPlanFriendlyName(sub.plans.code, sub.plans.name)
+      const baseFriendlyName = formatPlanFriendlyName(sub.plans.code, sub.plans.name)
+      planName = isCourtesy ? `${baseFriendlyName.split(' (')[0]} (Cortesía 1 Mes)` : baseFriendlyName
       paymentStatus = sub.status
+      if (sub.current_period_end && Date.parse(sub.current_period_end) < nowMs && sub.status === 'active' && isCourtesy) {
+        paymentStatus = 'expired'
+      }
     } else {
       // Sin suscripción en Stripe
       if (isTrialActive) {
@@ -378,6 +398,7 @@ export async function getAdminOverview(accessToken: string): Promise<AdminOvervi
       planCode,
       planName,
       paymentStatus,
+      isCourtesy,
       isTrialActive,
       trialDaysLeft,
       trialEndsAt,
@@ -387,6 +408,27 @@ export async function getAdminOverview(accessToken: string): Promise<AdminOvervi
       stripeSubscriptionId: sub?.stripe_subscription_id ?? null,
     }
   })
+
+  // Cargar códigos de cortesía y enriquecer con el usuario que lo canjeó
+  let rawCourtesyCodes: CourtesyCodeRecord[] = []
+  try {
+    rawCourtesyCodes = await listCourtesyCodes()
+  } catch (err) {
+    console.error('Error listando códigos de cortesía en admin:', err)
+  }
+
+  const courtesyCodes: CourtesyCodeRecord[] = rawCourtesyCodes.map((c) => {
+    const redeemerAuth = c.redeemedBy ? authUsersById.get(c.redeemedBy) : undefined
+    const redeemerProfile = c.redeemedBy ? profilesById.get(c.redeemedBy) : undefined
+    return {
+      ...c,
+      redeemedByEmail: redeemerAuth?.email ?? null,
+      redeemedByName: redeemerProfile?.full_name ?? redeemerAuth?.user_metadata?.full_name ?? null,
+    }
+  })
+
+  const courtesyCodesActive = courtesyCodes.filter((c) => c.status === 'active').length
+  const courtesyCodesRedeemed = courtesyCodes.filter((c) => c.status === 'redeemed').length
 
   // Métricas financieras y de usuarios
   const activeSubsCount = users.filter((u) => u.paymentStatus === 'active').length
@@ -431,12 +473,42 @@ export async function getAdminOverview(accessToken: string): Promise<AdminOvervi
       subscriptions: activeSubsCount,
       trialingUsers: trialingCount,
       pastDueSubscriptions: pastDueCount,
+      courtesyCodesActive,
+      courtesyCodesRedeemed,
     },
     users,
     superAdmins,
+    courtesyCodes,
     topWorks,
-    notifications: (notificationsRes.data ?? []) as AdminOverview['notifications'],
+    notifications: (notificationsRes.data ?? []).filter(
+      (n: any) => n.type !== 'courtesy_code_record'
+    ) as AdminOverview['notifications'],
   }
+}
+
+export async function generateCourtesyCodeAction(
+  accessToken: string,
+  planCode: CourtesyPlanCode,
+  note?: string
+): Promise<CourtesyCodeRecord> {
+  const { adminId } = await requireAdmin(accessToken)
+  if (!['solo_monthly', 'band_monthly', 'orchestra_monthly'].includes(planCode)) {
+    throw new Error('Tier de cortesía inválido.')
+  }
+  return await createCourtesyCode({
+    planCode,
+    note,
+    createdBy: adminId,
+    durationDays: 30,
+  })
+}
+
+export async function revokeCourtesyCodeAction(
+  accessToken: string,
+  codeId: string
+): Promise<void> {
+  await requireAdmin(accessToken)
+  await revokeCourtesyCode(codeId)
 }
 
 export async function setUserSuspended(
@@ -465,3 +537,4 @@ export async function signOutAdmin(accessToken: string): Promise<void> {
   const client = createAuthedClient(accessToken)
   await client.auth.signOut()
 }
+

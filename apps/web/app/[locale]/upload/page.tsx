@@ -83,10 +83,16 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
+      if (!data.user) {
+        router.replace(
+          `/${locale}/login?next=${encodeURIComponent(`/${locale}/upload`)}&reason=auth_required`
+        )
+        return
+      }
       setCurrentUser(data.user)
       setAuthChecked(true)
     })
-  }, [supabase])
+  }, [supabase, router, locale])
 
   // Obtener los sistemas de la página actualmente visible
   const activePageObj = pagesData.find((p) => p.pageNumber === currentPage)

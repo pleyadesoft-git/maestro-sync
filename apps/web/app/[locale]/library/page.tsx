@@ -48,8 +48,9 @@ export default function LibraryPage({ params }: { params: Promise<{ locale: stri
       if (cancelled) return
       if (!authData.user) {
         setIsAnon(true)
-        setLoadError(null)
-        setPhase('ready')
+        router.replace(
+          `/${locale}/login?next=${encodeURIComponent(`/${locale}/library`)}&reason=auth_required`
+        )
         return
       }
       setIsAnon(false)

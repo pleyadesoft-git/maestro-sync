@@ -122,24 +122,16 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const target = e.currentTarget
-      if (touched || internalError) {
-        if (!target.validity.valid) {
-          setInternalError(getFriendlyValidationMessage(target.validity, target, label))
-        } else {
-          setInternalError(null)
-        }
+      if (internalError && target.validity.valid) {
+        setInternalError(null)
       }
       onChange?.(e)
     }
 
     const handleInput = (e: React.FormEvent<HTMLInputElement>) => {
       const target = e.currentTarget
-      if (touched || internalError) {
-        if (!target.validity.valid) {
-          setInternalError(getFriendlyValidationMessage(target.validity, target, label))
-        } else {
-          setInternalError(null)
-        }
+      if (internalError && target.validity.valid) {
+        setInternalError(null)
       }
       if (onInput) {
         ;(onInput as any)(e)
@@ -156,7 +148,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
       }
     }
 
-    const displayError = errorMessage || internalError
+    const displayError = errorMessage || (touched ? internalError : null)
     const isInvalid = Boolean(displayError)
 
     return (
@@ -186,7 +178,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
             ref={inputRef}
             type={type}
             required={required}
-            aria-invalid={isInvalid ? 'true' : undefined}
+            aria-invalid={isInvalid ? 'true' : 'false'}
             aria-describedby={isInvalid ? errorId : helperText ? helperId : undefined}
             onBlur={handleBlur}
             onChange={handleChange}

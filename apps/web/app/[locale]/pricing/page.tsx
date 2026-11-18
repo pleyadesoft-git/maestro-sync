@@ -3,7 +3,7 @@
 import React, { useState } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
-import { Button, Card } from '@music-flow/ui'
+import { Button, Card, Input } from '@music-flow/ui'
 import { createBrowserClient } from '@music-flow/supabase'
 import {
   Check,
@@ -13,8 +13,9 @@ import {
   Music,
   ShieldCheck,
   Loader2,
-  Info,
   Share2,
+  Gift,
+  CheckCircle2,
 } from 'lucide-react'
 
 export default function PricingPage() {
@@ -27,6 +28,11 @@ export default function PricingPage() {
   const [loadingPlan, setLoadingPlan] = useState<string | null>(null)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
+  const [courtesyCode, setCourtesyCode] = useState('')
+  const [redeemingCourtesy, setRedeemingCourtesy] = useState(false)
+  const [courtesyError, setCourtesyError] = useState<string | null>(null)
+  const [courtesySuccess, setCourtesySuccess] = useState<string | null>(null)
+
   const handleSubscribe = async (planBaseCode: string) => {
     setErrorMsg(null)
     setLoadingPlan(planBaseCode)
@@ -35,7 +41,7 @@ export default function PricingPage() {
       const { data: sessionData } = await supabase.auth.getSession()
       const token = sessionData.session?.access_token
       if (!token) {
-        router.push(`/${locale}/login?next=/${locale}/pricing`)
+        router.push(`/${locale}/login?mode=register&next=/${locale}/pricing`)
         return
       }
 
@@ -65,18 +71,80 @@ export default function PricingPage() {
     }
   }
 
+  const handleRedeemCourtesy = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const trimmed = courtesyCode.trim().toUpperCase()
+    if (!trimmed) {
+      setCourtesyError('Introduce un código de cortesía válido.')
+      return
+    }
+
+    setRedeemingCourtesy(true)
+    setCourtesyError(null)
+    setCourtesySuccess(null)
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession()
+      const token = sessionData.session?.access_token
+      if (!token) {
+        router.push(`/${locale}/login?mode=register&next=/${locale}/pricing`)
+        return
+      }
+
+      const res = await fetch('/api/courtesy/redeem', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ code: trimmed }),
+      })
+
+      const json = await res.json()
+      if (!res.ok || !json.ok) {
+        setCourtesyError(json.error || 'No se pudo canjear el código de cortesía.')
+        return
+      }
+
+      setCourtesySuccess(
+        `¡Código ${json.code} activado! Disfruta 1 mes de ${json.planName}. Redirigiendo a tu biblioteca…`
+      )
+      setCourtesyCode('')
+      setTimeout(() => {
+        router.push(`/${locale}/library`)
+      }, 2000)
+    } catch (err: any) {
+      setCourtesyError(err?.message || 'Error al canjear el código de cortesía.')
+    } finally {
+      setRedeemingCourtesy(false)
+    }
+  }
+
   return (
     <main className="min-h-screen bg-slate-950 p-6 sm:p-12 text-slate-100">
       <div className="max-w-6xl mx-auto space-y-12">
         {/* Navigation & Header */}
         <div className="text-center space-y-4">
-          <Link
-            href={`/${locale}/library`}
-            className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-amber-400 transition-colors mb-2"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            <span>Volver a la Biblioteca</span>
-          </Link>
+          <div className="flex items-center justify-between max-w-6xl mx-auto mb-2">
+            <Link
+              href={`/${locale}`}
+              className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-amber-400 transition-colors"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span>Volver al Inicio</span>
+            </Link>
+            <div className="flex items-center gap-2">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/icons/icon-192x192.png"
+                alt="MaestroSync Logo"
+                className="w-8 h-8 rounded-lg border border-amber-500/30"
+              />
+              <span className="font-extrabold text-slate-100 text-base">
+                Maestro<span className="text-amber-500">Sync</span>
+              </span>
+            </div>
+          </div>
 
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-semibold">
             <Sparkles className="w-3.5 h-3.5" />
@@ -314,6 +382,70 @@ export default function PricingPage() {
             </Button>
           </Card>
         </div>
+
+        {/* Sección de Canje de Código de Cortesía de 1 Mes */}
+        <Card className="border-amber-500/30 bg-slate-900/80 p-6 sm:p-8">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="space-y-1.5 max-w-xl">
+              <div className="inline-flex items-center gap-2 text-xs font-bold text-amber-400 uppercase tracking-wider">
+                <Gift className="w-4 h-4" />
+                <span>Cortesía de 1 Mes (30 días)</span>
+              </div>
+              <h2 className="text-xl font-bold text-slate-100">
+                ¿Tienes un código de cortesía generado?
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-400">
+                Ingresa tu código de cortesía para activar 1 mes completo sin costo en el plan Solo, Band u Orchestra asignado al código.
+              </p>
+            </div>
+
+            <form
+              noValidate
+              onSubmit={handleRedeemCourtesy}
+              className="flex flex-col sm:flex-row items-stretch sm:items-start gap-3 w-full md:w-auto md:min-w-[380px]"
+            >
+              <div className="flex-1">
+                <Input
+                  type="text"
+                  required
+                  placeholder="Ej. MS-SOLO-8F4K2A"
+                  value={courtesyCode}
+                  errorMessage={courtesyError || undefined}
+                  onChange={(e) => {
+                    setCourtesyCode(e.target.value.toUpperCase())
+                    if (courtesyError) setCourtesyError(null)
+                  }}
+                  className="uppercase font-mono tracking-wider text-sm"
+                />
+              </div>
+              <Button
+                type="submit"
+                variant="primary"
+                disabled={redeemingCourtesy}
+                className="h-11 shrink-0 font-semibold"
+              >
+                {redeemingCourtesy ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Activando…
+                  </>
+                ) : (
+                  'Canjear Cortesía'
+                )}
+              </Button>
+            </form>
+          </div>
+
+          {courtesySuccess && (
+            <div
+              role="status"
+              className="mt-4 flex items-center gap-2 rounded-xl border border-emerald-500/40 bg-emerald-950/20 px-4 py-3 text-xs sm:text-sm text-emerald-300"
+            >
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>{courtesySuccess}</span>
+            </div>
+          )}
+        </Card>
 
         {/* Nota explicativa de funcionalidades transversales */}
         <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 flex items-start gap-3.5 text-xs text-slate-400">

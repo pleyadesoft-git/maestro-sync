@@ -5,7 +5,20 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Button, Card, CardHeader, CardTitle, CardDescription, Input } from '@music-flow/ui'
 import { createBrowserClient, getAdminPublicUrl } from '@music-flow/supabase'
-import { Music, Play, PlusCircle, LogIn, Sparkles, BookOpen, Shield, AlertCircle, Loader2 } from 'lucide-react'
+import {
+  Music,
+  Play,
+  PlusCircle,
+  LogIn,
+  LogOut,
+  Sparkles,
+  BookOpen,
+  Shield,
+  AlertCircle,
+  Loader2,
+  Lock,
+  CreditCard,
+} from 'lucide-react'
 import { createRoomForVersion, fetchAnyOwnedVersion } from '../../lib/rooms'
 import PWAInstallButton from '../components/PWAInstallButton'
 
@@ -17,13 +30,41 @@ export default function HomePage({ params }: { params: Promise<{ locale: string 
   const [roomError, setRoomError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
+  const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null)
+  const [authChecking, setAuthChecking] = useState(true)
   const [adminUrl] = useState(() =>
     typeof window !== 'undefined'
       ? getAdminPublicUrl(window.location.origin)
       : getAdminPublicUrl()
   )
 
-  const handleJoinRoom = (e: React.FormEvent) => {
+  useEffect(() => {
+    let mounted = true
+    supabase.auth.getUser().then(({ data }) => {
+      if (!mounted) return
+      setCurrentUserEmail(data.user?.email ?? null)
+      setAuthChecking(false)
+    })
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!mounted) return
+      setCurrentUserEmail(session?.user?.email ?? null)
+      setAuthChecking(false)
+    })
+
+    return () => {
+      mounted = false
+      sub.subscription.unsubscribe()
+    }
+  }, [supabase])
+
+  const redirectToLogin = (targetPath: string) => {
+    router.push(
+      `/${locale}/login?next=${encodeURIComponent(targetPath)}&reason=auth_required`
+    )
+  }
+
+  const handleJoinRoom = async (e: React.FormEvent) => {
     e.preventDefault()
     const trimmed = roomCode.trim()
     if (!trimmed) {
@@ -34,7 +75,15 @@ export default function HomePage({ params }: { params: Promise<{ locale: string 
       setRoomError('El código solo puede contener letras, números y guiones (ej. MZ7K-2Q)')
       return
     }
-    router.push(`/${locale}/session/${trimmed.toUpperCase()}`)
+
+    const targetUrl = `/${locale}/session/${trimmed.toUpperCase()}`
+    const { data } = await supabase.auth.getUser()
+    if (!data.user) {
+      redirectToLogin(targetUrl)
+      return
+    }
+
+    router.push(targetUrl)
   }
 
   const handleCreateQuickRoom = async () => {
@@ -42,6 +91,12 @@ export default function HomePage({ params }: { params: Promise<{ locale: string 
     setCreating(true)
     setCreateError(null)
     try {
+      const { data: authData } = await supabase.auth.getUser()
+      if (!authData.user) {
+        redirectToLogin(`/${locale}/library`)
+        return
+      }
+
       const owned = await fetchAnyOwnedVersion(supabase)
       if (!owned) {
         setCreateError('Aún no tienes partituras. Sube tu primera obra para poder iniciar una sala.')
@@ -50,7 +105,7 @@ export default function HomePage({ params }: { params: Promise<{ locale: string 
       const result = await createRoomForVersion(supabase, owned.versionId, owned.tempo)
       if (!result.ok) {
         if (result.kind === 'auth') {
-          router.push(`/${locale}/login`)
+          redirectToLogin(`/${locale}/library`)
           return
         }
         setCreateError(result.message)
@@ -62,6 +117,20 @@ export default function HomePage({ params }: { params: Promise<{ locale: string 
     } finally {
       setCreating(false)
     }
+  }
+
+  const handleGoToLibrary = async () => {
+    const { data: authData } = await supabase.auth.getUser()
+    if (!authData.user) {
+      redirectToLogin(`/${locale}/library`)
+      return
+    }
+    router.push(`/${locale}/library`)
+  }
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut()
+    setCurrentUserEmail(null)
   }
 
   return (
@@ -77,16 +146,50 @@ export default function HomePage({ params }: { params: Promise<{ locale: string 
           <span>Lectura Sincronizada PWA</span>
         </div>
         <PWAInstallButton />
+        {!authChecking && currentUserEmail && (
+          <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-900 border border-slate-800 text-xs text-slate-300">
+            <span className="w-2 h-2 rounded-full bg-emerald-400" />
+            <span className="font-mono">{currentUserEmail}</span>
+            <button
+              type="button"
+              onClick={handleSignOut}
+              className="ml-1 text-slate-400 hover:text-amber-400 transition-colors inline-flex items-center gap-1"
+              title="Cerrar sesión"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Hero Title */}
-      <div className="max-w-3xl text-center mb-12">
-        <h1 className="text-4xl sm:text-6xl font-extrabold text-slate-100 tracking-tight leading-tight mb-4">
-          Maestro<span className="text-amber-500">Sync</span>
-        </h1>
+      <div className="max-w-3xl text-center mb-10">
+        <div className="flex items-center justify-center gap-3.5 mb-4">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/icons/icon-192x192.png"
+            alt="MaestroSync Logo"
+            className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl border border-amber-500/30 shadow-xl shadow-amber-950/40"
+          />
+          <h1 className="text-4xl sm:text-6xl font-extrabold text-slate-100 tracking-tight leading-tight">
+            Maestro<span className="text-amber-500">Sync</span>
+          </h1>
+        </div>
         <p className="text-lg sm:text-xl text-slate-400 max-w-xl mx-auto leading-relaxed">
           Lectura digital de partituras para orquestas. El Director controla el avance en tiempo real y resalta el pentagrama de cada músico en su atril.
         </p>
+        {!authChecking && !currentUserEmail && (
+          <div className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900/90 border border-amber-500/30 text-xs text-slate-300">
+            <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <span>
+              Para unirte a una sala, iniciar como director o ver tu biblioteca debes{' '}
+              <Link href={`/${locale}/login`} className="text-amber-400 font-semibold underline hover:text-amber-300">
+                iniciar sesión o registrarte
+              </Link>
+              .
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Interactive Options */}
@@ -104,7 +207,7 @@ export default function HomePage({ params }: { params: Promise<{ locale: string 
             <Input
               required
               minLength={4}
-              placeholder="Código de sala (ej. MZ7K2Q)"
+              placeholder="Código de sala (ej. MZ7K-2Q)"
               value={roomCode}
               errorMessage={roomError || undefined}
               onChange={(e) => {
@@ -114,7 +217,7 @@ export default function HomePage({ params }: { params: Promise<{ locale: string 
               className="h-12 uppercase tracking-widest font-mono text-center text-lg font-bold"
             />
             <Button type="submit" variant="primary" className="w-full">
-              Ingresar a la Sala
+              {!authChecking && !currentUserEmail ? 'Iniciar sesión y Unirme a la Sala' : 'Ingresar a la Sala'}
             </Button>
           </form>
         </Card>
@@ -135,6 +238,8 @@ export default function HomePage({ params }: { params: Promise<{ locale: string 
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   Creando sala…
                 </>
+              ) : !authChecking && !currentUserEmail ? (
+                'Iniciar sesión para Dirigir'
               ) : (
                 'Crear Sala Inmediata'
               )}
@@ -145,26 +250,38 @@ export default function HomePage({ params }: { params: Promise<{ locale: string 
                 <span>{createError}</span>
               </p>
             )}
-            <Button asChild variant="outline" className="w-full">
-              <Link href={`/${locale}/library`}>
-                <BookOpen className="w-4 h-4 mr-2" />
-                Elegir de mi Biblioteca
-              </Link>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              onClick={() => void handleGoToLibrary()}
+            >
+              <BookOpen className="w-4 h-4 mr-2" />
+              Elegir de mi Biblioteca
             </Button>
           </div>
         </Card>
       </div>
 
       {/* Navigation Footer */}
-      <footer className="mt-16 flex items-center gap-6 text-sm text-slate-500">
+      <footer className="mt-16 flex flex-wrap items-center justify-center gap-6 text-sm text-slate-500">
         <Link href={`/${locale}/login`} className="flex items-center gap-1.5 hover:text-amber-400 transition-colors">
           <LogIn className="w-4 h-4" />
-          <span>Iniciar sesión / Registrarse</span>
+          <span>{currentUserEmail ? 'Cambiar cuenta' : 'Iniciar sesión / Registrarse'}</span>
         </Link>
         <span>•</span>
-        <Link href={`/${locale}/library`} className="flex items-center gap-1.5 hover:text-amber-400 transition-colors">
+        <button
+          type="button"
+          onClick={() => void handleGoToLibrary()}
+          className="flex items-center gap-1.5 hover:text-amber-400 transition-colors cursor-pointer"
+        >
           <Music className="w-4 h-4" />
           <span>Mi Biblioteca</span>
+        </button>
+        <span>•</span>
+        <Link href={`/${locale}/pricing`} className="flex items-center gap-1.5 hover:text-amber-400 transition-colors">
+          <CreditCard className="w-4 h-4" />
+          <span>Planes y Cortesías</span>
         </Link>
         <span>•</span>
         <a href={adminUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 hover:text-amber-400 transition-colors">
@@ -175,3 +292,4 @@ export default function HomePage({ params }: { params: Promise<{ locale: string 
     </main>
   )
 }
+
