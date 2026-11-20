@@ -9,6 +9,7 @@ import {
   deleteVisionProviderAction,
   reorderVisionProvidersAction,
   testVisionProviderAction,
+  runVisionHealthCheckAction,
   type VisionProviderRecord,
   type VisionProviderType,
 } from '../admin-actions'
@@ -51,10 +52,10 @@ const PROVIDER_PRESETS: ProviderPresetUI[] = [
     providerType: 'gemini',
     label: 'Google Gemini (AI Studio)',
     badge: 'Recomendado',
-    defaultName: 'Gemini 2.5 Flash-Lite (Free)',
-    defaultModel: 'gemini-2.5-flash-lite',
+    defaultName: 'Gemini 3.5 Flash-Lite (Free)',
+    defaultModel: 'gemini-3.5-flash-lite',
     defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta',
-    freeTierInfo: 'Tier gratuito sin tarjeta; pago ~$0.10 / 1M tokens (~4,000 partituras por $1).',
+    freeTierInfo: 'Tier gratuito sin tarjeta; súper rápido y multimodal (visión nativa).',
     apiKeyUrl: 'https://aistudio.google.com/apikey',
     docsUrl: 'https://ai.google.dev/gemini-api/docs',
   },
@@ -126,11 +127,7 @@ interface FormErrors {
   baseUrl?: string
 }
 
-export function VisionProvidersManager({ getToken: getTokenProp }: Props) {
-  const getTokenRef = useRef(getTokenProp)
-  getTokenRef.current = getTokenProp
-  const getToken = useCallback(() => getTokenRef.current(), [])
-
+export function VisionProvidersManager({ getToken }: Props) {
   const [providers, setProviders] = useState<VisionProviderRecord[]>([])
   const [tableMissing, setTableMissing] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -141,8 +138,8 @@ export function VisionProvidersManager({ getToken: getTokenProp }: Props) {
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [providerType, setProviderType] = useState<VisionProviderType>('gemini')
-  const [name, setName] = useState('Gemini 2.5 Flash-Lite (Free)')
-  const [modelName, setModelName] = useState('gemini-2.5-flash-lite')
+  const [name, setName] = useState('Gemini 3.5 Flash-Lite (Free)')
+  const [modelName, setModelName] = useState('gemini-3.5-flash-lite')
   const [baseUrl, setBaseUrl] = useState('https://generativelanguage.googleapis.com/v1beta')
   const [apiKey, setApiKey] = useState('')
   const [showApiKey, setShowApiKey] = useState(false)
@@ -157,6 +154,7 @@ export function VisionProvidersManager({ getToken: getTokenProp }: Props) {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [reordering, setReordering] = useState(false)
+  const [runningHealthCheck, setRunningHealthCheck] = useState(false)
 
   // Drag & Drop state
   const [draggedId, setDraggedId] = useState<string | null>(null)
@@ -179,8 +177,28 @@ export function VisionProvidersManager({ getToken: getTokenProp }: Props) {
   }, [getToken])
 
   useEffect(() => {
-    loadProviders()
-  }, [loadProviders])
+    let cancelled = false
+    void (async () => {
+      try {
+        const token = await getToken()
+        if (!token || cancelled) return
+        const res = await listVisionProvidersAction(token)
+        if (!cancelled) {
+          setProviders(res.providers)
+          setTableMissing(res.tableMissing)
+          setLoading(false)
+        }
+      } catch (e: any) {
+        if (!cancelled) {
+          setError(e?.message || 'Error al cargar los proveedores de Visión IA.')
+          setLoading(false)
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [getToken])
 
   const applyPreset = (type: VisionProviderType) => {
     const preset = PROVIDER_PRESETS.find((p) => p.providerType === type)
@@ -337,6 +355,35 @@ export function VisionProvidersManager({ getToken: getTokenProp }: Props) {
     }
   }
 
+  const handleRunHealthCheck = async () => {
+    setRunningHealthCheck(true)
+    setFeedback(null)
+    try {
+      const token = await getToken()
+      if (!token) return
+      const report = await runVisionHealthCheckAction(token)
+      await loadProviders()
+      if (report.failedCount === 0) {
+        setFeedback({
+          type: 'ok',
+          text: `Health Check completado: ${report.okCount}/${report.totalChecked} modelos respondieron OK.`,
+        })
+      } else {
+        const mailInfo = report.emailSent
+          ? `Correo de alerta enviado a ${report.emailRecipients.join(', ')} (${report.emailProvider}).`
+          : `Alerta registrada en el panel. Correo no enviado: ${report.emailError || 'sin proveedor de email'}`
+        setFeedback({
+          type: 'error',
+          text: `Health Check: ${report.failedCount} de ${report.totalChecked} modelo(s) fallaron. ${mailInfo}`,
+        })
+      }
+    } catch (err: any) {
+      setFeedback({ type: 'error', text: err?.message || 'Error ejecutando el Health Check.' })
+    } finally {
+      setRunningHealthCheck(false)
+    }
+  }
+
   const persistOrder = async (nextList: VisionProviderRecord[]) => {
     // Optimistic UI update
     const renumbered = nextList.map((item, idx) => ({ ...item, priority: idx + 1 }))
@@ -417,15 +464,34 @@ export function VisionProvidersManager({ getToken: getTokenProp }: Props) {
               Al subir una partitura (PDF o imagen), MaestroSync probará el proveedor #1; si falla o alcanza su límite, pasará automáticamente al #2, #3, etc., y complementará con MusicBrainz / OpenOpus / IMSLP.
             </CardDescription>
           </div>
-          <Button
-            variant="primary"
-            onClick={() => openCreateForm('gemini')}
-            disabled={tableMissing}
-            className="shrink-0"
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            Agregar Proveedor IA
-          </Button>
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <Button
+              variant="secondary"
+              onClick={handleRunHealthCheck}
+              disabled={tableMissing || runningHealthCheck || providers.length === 0}
+              title="Prueba todos los modelos habilitados y envía correo a los Super-Admins si alguno falla"
+            >
+              {runningHealthCheck ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Probando todos...
+                </>
+              ) : (
+                <>
+                  <Zap className="h-4 w-4 mr-2 text-amber-400" />
+                  Probar Todos (Health Check)
+                </>
+              )}
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => openCreateForm('gemini')}
+              disabled={tableMissing}
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Agregar Proveedor IA
+            </Button>
+          </div>
         </CardHeader>
 
         {/* Tarjetas rápidas de enlaces para obtener API Keys */}

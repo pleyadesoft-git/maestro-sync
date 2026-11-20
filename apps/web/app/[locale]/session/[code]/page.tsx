@@ -109,14 +109,64 @@ const INSTRUMENT_CODE_TO_LABEL_BY_LOCALE: Record<'es' | 'en', Record<string, str
   },
 }
 
-function getFallbackSystems(locale: string): ScoreSystemData[] {
+function normalizeInstrument(str: string): string {
+  return str
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]/g, '')
+    .replace(/i{1,3}$/, (m) => String(m.length))
+}
+
+function instrumentsMatch(instName: string, selected: string): boolean {
+  const normA = normalizeInstrument(instName)
+  const normB = normalizeInstrument(selected)
+  if (!normA || !normB) return false
+  if (normA === normB) return true
+  if (normA.includes(normB) || normB.includes(normA)) return true
+
+  if ((normA.includes('cello') || normA.includes('violoncel')) && (normB.includes('cello') || normB.includes('violoncel'))) return true
+  if ((normA.includes('flaut') || normA.includes('flute')) && (normB.includes('flaut') || normB.includes('flute'))) return true
+  if ((normA.includes('trompet') || normA.includes('trumpet')) && (normB.includes('trompet') || normB.includes('trumpet'))) return true
+  if ((normA.includes('piano') || normA.includes('pno')) && (normB.includes('piano') || normB.includes('pno'))) return true
+  return false
+}
+
+function getDynamicFallbackSystems(
+  locale: string,
+  totalMeasures: number = 32,
+  pageCount: number = 1,
+  instrumentName?: string
+): ScoreSystemData[] {
   const labels = INSTRUMENT_CODE_TO_LABEL_BY_LOCALE[locale === 'en' ? 'en' : 'es']
-  return [
-    { id: 's1', pageNumber: 1, measureStart: 1, measureCount: 4, bboxX: 0.04, bboxY: 0.14, bboxW: 0.94, bboxH: 0.17, instrument: labels.violin_1 },
-    { id: 's2', pageNumber: 1, measureStart: 5, measureCount: 4, bboxX: 0.04, bboxY: 0.35, bboxW: 0.94, bboxH: 0.17, instrument: labels.violin_2 },
-    { id: 's3', pageNumber: 1, measureStart: 9, measureCount: 4, bboxX: 0.04, bboxY: 0.56, bboxW: 0.94, bboxH: 0.17, instrument: labels.viola },
-    { id: 's4', pageNumber: 1, measureStart: 13, measureCount: 4, bboxX: 0.04, bboxY: 0.77, bboxW: 0.94, bboxH: 0.17, instrument: labels.cello },
-  ]
+  const defaultInst = instrumentName || labels.violin_1
+  const systems: ScoreSystemData[] = []
+  const measuresPerSystem = 4
+  const systemsPerPage = 4
+  const totalSystems = Math.max(1, Math.ceil(totalMeasures / measuresPerSystem))
+  let curMeasure = 1
+
+  for (let s = 1; s <= totalSystems; s++) {
+    const pageNum = Math.min(pageCount, Math.floor((s - 1) / systemsPerPage) + 1)
+    const orderInPage = ((s - 1) % systemsPerPage) + 1
+    const bboxY = 0.14 + (orderInPage - 1) * 0.20
+    const count = Math.min(measuresPerSystem, totalMeasures - curMeasure + 1)
+    if (count <= 0) break
+
+    systems.push({
+      id: `fallback-sys-${s}`,
+      pageNumber: pageNum,
+      measureStart: curMeasure,
+      measureCount: count,
+      bboxX: 0.04,
+      bboxY,
+      bboxW: 0.92,
+      bboxH: 0.16,
+      instrument: defaultInst,
+    })
+    curMeasure += count
+  }
+  return systems
 }
 
 function SessionContent({ params }: { params?: Promise<{ locale: string; code: string }> }) {
@@ -126,7 +176,7 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
   const t = useTranslations('sessionPage')
   const tSheet = useTranslations('scoreSheet')
   const INSTRUMENT_CODE_TO_LABEL = INSTRUMENT_CODE_TO_LABEL_BY_LOCALE[locale === 'en' ? 'en' : 'es']
-  const FALLBACK_SYSTEMS = useMemo(() => getFallbackSystems(locale), [locale])
+  const FALLBACK_SYSTEMS = useMemo(() => getDynamicFallbackSystems(locale, 32, 1), [locale])
 
   const supabase = createBrowserClient()
 
@@ -150,6 +200,7 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
   const [selectedInstrument, setSelectedInst] = useState('Violín I')
   const [scorePages, setScorePages] = useState<ScorePageData[]>([])
   const [scoreSystems, setScoreSystems] = useState<ScoreSystemData[]>(FALLBACK_SYSTEMS)
+  const [musicXmlUrl, setMusicXmlUrl] = useState<string | null>(null)
   const [totalMeasures, setTotalMeasures] = useState<number | null>(null)
   const [connectedUsers, setConnectedUsers] = useState<PresenceInfo[]>([])
   const [userId, setUserId] = useState<string | null>(null)
@@ -213,24 +264,28 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
   }, [scoreSystems])
 
   // Localizar el sistema que abarca el compás, respetando prioritariamente el instrumento elegido
-  const findSystemIndex = (measure: number, instrument: string) => {
-    const systems = scoreSystemsRef.current
+  const findSystemIndex = (measure: number, instrument: string, systemsOverride?: ScoreSystemData[]) => {
+    const systems = systemsOverride || scoreSystemsRef.current
     if (!systems || systems.length === 0) return -1
-    const normalizedInst = instrument.trim().toLowerCase()
 
-    // 1. Coincidencia exacta de compás e instrumento seleccionado
+    // 1. Coincidencia exacta de compás e instrumento seleccionado (comparación flexible)
     const exactIdx = systems.findIndex(
       (sys) =>
         measure >= sys.measureStart &&
         measure < sys.measureStart + sys.measureCount &&
-        sys.instrument.trim().toLowerCase() === normalizedInst
+        instrumentsMatch(sys.instrument, instrument)
     )
     if (exactIdx !== -1) return exactIdx
 
     // 2. Coincidencia de compás general si no existe arreglo específico para este instrumento
-    return systems.findIndex(
+    const generalIdx = systems.findIndex(
       (sys) => measure >= sys.measureStart && measure < sys.measureStart + sys.measureCount
     )
+    if (generalIdx !== -1) return generalIdx
+
+    // 3. Resiliencia: si el compás supera los sistemas o está antes, asegurar continuidad sin congelar
+    if (measure <= systems[0].measureStart) return 0
+    return systems.length - 1
   }
 
   // Cambio manual de atril / instrumento por el ejecutante
@@ -467,6 +522,54 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
         const loadedSystems: ScoreSystemData[] = []
 
         if (scoreRecord) {
+          const isXml =
+            scoreRecord.file_type === 'musicxml' ||
+            scoreRecord.file_type === 'mxl' ||
+            scoreRecord.file_path?.endsWith('.musicxml') ||
+            scoreRecord.file_path?.endsWith('.xml') ||
+            scoreRecord.file_path?.endsWith('.mxl')
+
+          if (isXml && scoreRecord.file_path) {
+            let xmlUrl: string | null = null
+            try {
+              const { data: signed } = await supabase.storage
+                .from('scores')
+                .createSignedUrl(scoreRecord.file_path, 7200)
+              xmlUrl = signed?.signedUrl ?? null
+            } catch {
+              /* ignore */
+            }
+            if (!xmlUrl) {
+              try {
+                const { data: sessionData } = await supabase.auth.getSession()
+                const token = sessionData.session?.access_token
+                if (token) {
+                  const urlRes = await fetch('/api/scores/signed-url', {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      Authorization: `Bearer ${token}`,
+                    },
+                    body: JSON.stringify({ filePath: scoreRecord.file_path }),
+                  })
+                  const urlJson = await urlRes.json()
+                  if (urlJson.ok && urlJson.signedUrl) {
+                    xmlUrl = urlJson.signedUrl
+                  }
+                }
+              } catch {
+                /* fallback */
+              }
+            }
+            if (!xmlUrl) {
+              const { data: pub } = supabase.storage.from('scores').getPublicUrl(scoreRecord.file_path)
+              xmlUrl = pub?.publicUrl ?? null
+            }
+            if (xmlUrl) {
+              setMusicXmlUrl(xmlUrl)
+            }
+          }
+
           const { data: rawPages } = await supabase
             .from('score_pages')
             .select('id, score_id, page_number, image_path, width_px, height_px')
@@ -557,7 +660,7 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
                  instruments ( code )`
               )
               .in('score_page_id', pageIds)
-              .order('measure_start', { ascending: true })
+              .order('system_order', { ascending: true })
 
             const pageNumberById = new Map<string, number>()
             for (const p of rawPages) pageNumberById.set(p.id, p.page_number)
@@ -566,7 +669,7 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
               const instCode = sys.instruments?.code
               const instLabel = instCode
                 ? INSTRUMENT_CODE_TO_LABEL[instCode] || instCode
-                : 'Violín I'
+                : 'Piano'
               loadedSystems.push({
                 id: sys.id,
                 scorePageId: sys.score_page_id,
@@ -574,9 +677,9 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
                 measureStart: sys.measure_start,
                 measureCount: sys.measure_count,
                 bboxX: Number(sys.bbox_x ?? 0.04),
-                bboxY: Number(sys.bbox_y ?? 0.08),
+                bboxY: Number(sys.bbox_y ?? 0.14),
                 bboxW: Number(sys.bbox_w ?? 0.92),
-                bboxH: Number(sys.bbox_h ?? 0.18),
+                bboxH: Number(sys.bbox_h ?? 0.16),
                 instrument: instLabel,
               })
             }
@@ -605,10 +708,10 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
                 measureStart: s.measure_start,
                 measureCount: s.measure_count,
                 bboxX: Number(s.bbox_x ?? 0.04),
-                bboxY: Number(s.bbox_y ?? 0.08),
+                bboxY: Number(s.bbox_y ?? 0.14),
                 bboxW: Number(s.bbox_w ?? 0.92),
-                bboxH: Number(s.bbox_h ?? 0.18),
-                instrument: instCode ? INSTRUMENT_CODE_TO_LABEL[instCode] || instCode : 'Violín I',
+                bboxH: Number(s.bbox_h ?? 0.16),
+                instrument: instCode ? INSTRUMENT_CODE_TO_LABEL[instCode] || instCode : 'Piano',
               })
             }
           }
@@ -620,14 +723,52 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
           setScorePages(processedPages)
         }
 
-        if (loadedSystems.length > 0) {
-          setScoreSystems(loadedSystems)
-          scoreSystemsRef.current = loadedSystems
+        // Ordenar sistemas estrictamente por página y coordenada vertical
+        loadedSystems.sort((a, b) => {
+          if ((a.pageNumber ?? 1) !== (b.pageNumber ?? 1)) return (a.pageNumber ?? 1) - (b.pageNumber ?? 1)
+          if (a.measureStart !== b.measureStart) return a.measureStart - b.measureStart
+          return a.bboxY - b.bboxY
+        })
+
+        const effectiveTotalMeasures = maxMeasures || 32
+        const maxLoadedMeasure = loadedSystems.length > 0
+          ? Math.max(...loadedSystems.map((s) => s.measureStart + s.measureCount - 1))
+          : 0
+
+        let finalSystems = loadedSystems
+        // Si no hay sistemas o no cubren los compases totales o el primer sistema de la pág 1 empieza anómalamente abajo (> 0.40)
+        if (
+          finalSystems.length === 0 ||
+          (maxMeasures && maxLoadedMeasure < maxMeasures) ||
+          (finalSystems.length > 0 && finalSystems[0].bboxY > 0.40)
+        ) {
+          const pagesCount = Math.max(1, processedPages.length || scoreRecord?.page_count || 1)
+          const fallbackInst = finalSystems[0]?.instrument || selectedInstRef.current || 'Piano'
+          finalSystems = getDynamicFallbackSystems(locale, effectiveTotalMeasures, pagesCount, fallbackInst)
+        }
+
+        if (finalSystems.length > 0) {
+          setScoreSystems(finalSystems)
+          scoreSystemsRef.current = finalSystems
+
           // Seleccionar primer instrumento disponible si el default no existe en la obra
-          const available = Array.from(new Set(loadedSystems.map((s) => s.instrument))).filter(Boolean)
-          if (available.length > 0 && !available.includes(selectedInstRef.current)) {
-            setSelectedInst(available[0])
-            selectedInstRef.current = available[0]
+          const available = Array.from(new Set(finalSystems.map((s) => s.instrument))).filter(Boolean)
+          const chosenInst = available.includes(selectedInstRef.current)
+            ? selectedInstRef.current
+            : (available[0] || 'Piano')
+          setSelectedInst(chosenInst)
+          selectedInstRef.current = chosenInst
+
+          // Re-calcular el sistema activo y la página para el compás de inicio de la sesión
+          const startMeasure = sessionRow.current_measure || 1
+          const activeIdx = findSystemIndex(startMeasure, chosenInst, finalSystems)
+          if (activeIdx !== -1) {
+            systemIndexRef.current = activeIdx
+            setActiveSystemIndex(activeIdx)
+            const sys = finalSystems[activeIdx]
+            if (sys?.pageNumber) {
+              setActivePageNumber(sys.pageNumber)
+            }
           }
         }
 
@@ -774,10 +915,14 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
 
   const handlePlay = () => {
     if (!isDirector) return
+    const targetMeasure =
+      status === 'stopped' || status === 'ended'
+        ? 1
+        : (measureFromAnchor() ?? currentMeasure)
     void broadcastPlayback({
       status: 'playing',
       tempoBpm,
-      currentMeasure: measureFromAnchor() ?? currentMeasure,
+      currentMeasure: targetMeasure,
       playbackStartedAt: new Date().toISOString(),
     })
   }
@@ -794,8 +939,11 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
 
   const handleStop = () => {
     if (!isDirector) return
+    anchorRef.current = null
     systemIndexRef.current = 0
     setActiveSystemIndex(0)
+    setMeasure(1)
+    measureRef.current = 1
     const firstSys = scoreSystemsRef.current[0]
     if (firstSys?.pageNumber) {
       setActivePageNumber(firstSys.pageNumber)
@@ -1084,6 +1232,9 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
             composer={sessionInfo?.composer || ''}
             subtitle={sessionInfo?.subtitle || ''}
             timeSignature={timeSignature || '4/4'}
+            keySignature={sessionInfo?.keySignature}
+            tempoBpm={tempoBpm}
+            totalMeasures={totalMeasures}
             activeSystemIndex={activeSystemIndex}
             activeMeasure={currentMeasure}
             selectedInstrument={selectedInstrument}
@@ -1093,6 +1244,7 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
             onPageChange={setActivePageNumber}
             deviceLayout={deviceLayout}
             measureIndicatorStyle={indicatorStyle}
+            musicXmlUrl={musicXmlUrl}
             labels={{
               facsimile: tSheet('facsimile'),
               digitalSvg: tSheet('digitalSvg'),

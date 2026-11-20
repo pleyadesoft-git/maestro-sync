@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
@@ -19,7 +19,11 @@ import {
   Share2,
   Gift,
   CheckCircle2,
+  CreditCard,
+  ShieldAlert,
+  RotateCcw,
 } from 'lucide-react'
+import SubscriptionModal from '../../components/SubscriptionModal'
 
 export default function PricingPage() {
   const router = useRouter()
@@ -27,7 +31,12 @@ export default function PricingPage() {
   const locale = params?.locale ?? 'es'
   const t = useTranslations('pricing')
   const tCommon = useTranslations('common')
+  const tSub = useTranslations('subscription')
   const supabase = createBrowserClient()
+
+  const [currentSub, setCurrentSub] = useState<any>(null)
+  const [subModalOpen, setSubModalOpen] = useState(false)
+  const [reactivating, setReactivating] = useState(false)
 
   const [interval, setInterval] = useState<'month' | 'year'>('month')
   const [loadingPlan, setLoadingPlan] = useState<string | null>(null)
@@ -37,6 +46,75 @@ export default function PricingPage() {
   const [redeemingCourtesy, setRedeemingCourtesy] = useState(false)
   const [courtesyError, setCourtesyError] = useState<string | null>(null)
   const [courtesySuccess, setCourtesySuccess] = useState<string | null>(null)
+
+  const loadUserSub = useCallback(async () => {
+    try {
+      const { data: sessionData } = await supabase.auth.getSession()
+      const token = sessionData.session?.access_token
+      if (!token) return
+
+      const res = await fetch('/api/subscription/status', {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const json = await res.json()
+      if (res.ok && json.ok && json.hasSubscription) {
+        setCurrentSub(json.subscription)
+      } else {
+        setCurrentSub(null)
+      }
+    } catch {
+      // Ignorar errores no críticos
+    }
+  }, [supabase])
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const { data: sessionData } = await supabase.auth.getSession()
+        const token = sessionData.session?.access_token
+        if (!token || cancelled) return
+
+        const res = await fetch('/api/subscription/status', {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        const json = await res.json()
+        if (!cancelled && res.ok && json.ok && json.hasSubscription) {
+          setCurrentSub(json.subscription)
+        }
+      } catch {
+        // Ignorar
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [supabase])
+
+  const handleReactivateSub = async () => {
+    setReactivating(true)
+    setErrorMsg(null)
+    try {
+      const { data: sessionData } = await supabase.auth.getSession()
+      const token = sessionData.session?.access_token
+      if (!token) return
+
+      const res = await fetch('/api/subscription/reactivate', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const json = await res.json()
+      if (!res.ok || !json.ok) {
+        throw new Error(json.error || tSub('errorGeneric'))
+      }
+
+      await loadUserSub()
+    } catch (e: any) {
+      setErrorMsg(e?.message || tSub('errorGeneric'))
+    } finally {
+      setReactivating(false)
+    }
+  }
 
   const handleSubscribe = async (planBaseCode: string) => {
     setErrorMsg(null)
@@ -202,6 +280,88 @@ export default function PricingPage() {
           <div role="alert" className="max-w-md mx-auto p-4 rounded-xl bg-rose-950/20 border border-rose-500/30 text-xs text-rose-300 text-center">
             {errorMsg}
           </div>
+        )}
+
+        {/* Banner de Suscripción Actual si el usuario tiene una activa */}
+        {currentSub && currentSub.isActive && (
+          <Card className="p-6 bg-slate-900 border-amber-500/40 rounded-2xl shadow-xl space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-start gap-3.5">
+                <div className="p-3 rounded-2xl bg-amber-500/10 text-amber-400 border border-amber-500/20 shrink-0">
+                  <CreditCard className="w-6 h-6" />
+                </div>
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                      {tSub('currentPlan')}:
+                    </span>
+                    <h2 className="text-lg font-bold text-slate-100">{currentSub.planName}</h2>
+                    {currentSub.cancelAtPeriodEnd ? (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                        <ShieldAlert className="w-3.5 h-3.5" />
+                        {tSub('statusScheduledCancel')}
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        {tSub('statusActive')}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-400">
+                    {currentSub.cancelAtPeriodEnd
+                      ? tSub('scheduledCancelAlert', {
+                          date: currentSub.currentPeriodEnd
+                            ? new Date(currentSub.currentPeriodEnd).toLocaleDateString(
+                                locale === 'en' ? 'en-US' : 'es-ES',
+                                { day: '2-digit', month: 'long', year: 'numeric' }
+                              )
+                            : '',
+                        })
+                      : `${tSub('renewalDate')}: ${
+                          currentSub.currentPeriodEnd
+                            ? new Date(currentSub.currentPeriodEnd).toLocaleDateString(
+                                locale === 'en' ? 'en-US' : 'es-ES',
+                                { day: '2-digit', month: 'long', year: 'numeric' }
+                              )
+                            : '—'
+                        }`}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2.5 shrink-0">
+                {currentSub.cancelAtPeriodEnd ? (
+                  <Button
+                    type="button"
+                    variant="primary"
+                    size="sm"
+                    onClick={handleReactivateSub}
+                    disabled={reactivating}
+                    className="font-semibold text-xs"
+                  >
+                    {reactivating ? (
+                      <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                    ) : (
+                      <RotateCcw className="w-3.5 h-3.5 mr-1.5" />
+                    )}
+                    <span>{reactivating ? tSub('reactivating') : tSub('reactivate')}</span>
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setSubModalOpen(true)}
+                    className="font-semibold text-xs border-slate-700 hover:border-amber-500/40"
+                  >
+                    <CreditCard className="w-3.5 h-3.5 mr-1.5 text-amber-400" />
+                    <span>{tSub('manageTitle')}</span>
+                  </Button>
+                )}
+              </div>
+            </div>
+          </Card>
         )}
 
         {/* 3 Tiers Grid */}
@@ -478,6 +638,16 @@ export default function PricingPage() {
         </div>
 
         <CopyrightNotice locale={locale} />
+
+        <SubscriptionModal
+          isOpen={subModalOpen}
+          onClose={() => {
+            setSubModalOpen(false)
+            void loadUserSub()
+          }}
+          locale={locale}
+          onSubscriptionChange={() => void loadUserSub()}
+        />
       </div>
     </main>
   )

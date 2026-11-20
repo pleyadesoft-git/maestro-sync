@@ -1,4 +1,5 @@
 import { createServiceRoleClient } from './server'
+import type { Database } from './types'
 
 export type VisionProviderType =
   | 'gemini'
@@ -69,8 +70,8 @@ export const VISION_PROVIDER_PRESETS: VisionProviderPreset[] = [
   {
     providerType: 'gemini',
     label: 'Google Gemini (AI Studio)',
-    defaultName: 'Gemini 2.5 Flash-Lite (Free)',
-    defaultModel: 'gemini-2.5-flash-lite',
+    defaultName: 'Gemini 3.5 Flash-Lite (Free)',
+    defaultModel: 'gemini-3.5-flash-lite',
     defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta',
     freeTierInfo: 'Tier gratuito sin tarjeta; pago ~$0.10 / 1M tokens',
     apiKeyUrl: 'https://aistudio.google.com/apikey',
@@ -277,7 +278,7 @@ export async function updateVisionProvider(
 ): Promise<VisionProviderRecord> {
   const admin = createServiceRoleClient()
 
-  const payload: Record<string, any> = {}
+  const payload: Database['public']['Tables']['ai_vision_providers']['Update'] = {}
   if (updates.name !== undefined) payload.name = updates.name.trim()
   if (updates.providerType !== undefined) payload.provider_type = updates.providerType
   if (updates.baseUrl !== undefined) {
@@ -359,7 +360,7 @@ export async function recordVisionProviderResult(
     .from('ai_vision_providers')
     .update({
       last_status: ok ? 'ok' : 'error',
-      last_error: ok ? null : (errorMessage || 'Error desconocido').slice(0, 500),
+      last_error: ok ? null : (errorMessage || 'Error desconocido').slice(0, 1000),
       last_tested_at: new Date().toISOString(),
       success_count: ok ? (current.success_count || 0) + 1 : current.success_count || 0,
       failure_count: ok ? current.failure_count || 0 : (current.failure_count || 0) + 1,
@@ -393,10 +394,13 @@ export async function testVisionProviderConnection(id: string): Promise<{
 
   try {
     if (providerType === 'gemini') {
-      const url = `${baseUrl}/models/${encodeURIComponent(row.model_name)}:generateContent?key=${encodeURIComponent(row.api_key)}`
+      const url = `${baseUrl}/models/${encodeURIComponent(row.model_name)}:generateContent`
       const res = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': row.api_key,
+        },
         body: JSON.stringify({
           contents: [{ parts: [{ text: 'Respond with exactly: OK' }] }],
           generationConfig: { maxOutputTokens: 16, temperature: 0 },
@@ -407,7 +411,7 @@ export async function testVisionProviderConnection(id: string): Promise<{
       const latencyMs = Date.now() - startedAt
       if (!res.ok) {
         const errText = await res.text().catch(() => '')
-        const msg = `HTTP ${res.status}: ${errText.slice(0, 220)}`
+        const msg = `HTTP ${res.status}: ${errText.slice(0, 800)}`
         await recordVisionProviderResult(id, false, msg)
         const { data: updated } = await admin.from('ai_vision_providers').select('*').eq('id', id).maybeSingle()
         return { ok: false, latencyMs, message: msg, provider: updated ? mapRowToMasked(updated) : undefined }
@@ -448,7 +452,7 @@ export async function testVisionProviderConnection(id: string): Promise<{
     const latencyMs = Date.now() - startedAt
     if (!res.ok) {
       const errText = await res.text().catch(() => '')
-      const msg = `HTTP ${res.status}: ${errText.slice(0, 220)}`
+      const msg = `HTTP ${res.status}: ${errText.slice(0, 800)}`
       await recordVisionProviderResult(id, false, msg)
       const { data: updated } = await admin.from('ai_vision_providers').select('*').eq('id', id).maybeSingle()
       return { ok: false, latencyMs, message: msg, provider: updated ? mapRowToMasked(updated) : undefined }

@@ -212,10 +212,10 @@ export async function POST(req: NextRequest) {
     // 5. Subir archivo original a Supabase Storage (bucket scores)
     const rawExtension = (file.name.split('.').pop() || '').replace(/[^a-z0-9]/gi, '').toLowerCase()
     const isPdf = file.type === 'application/pdf' || rawExtension === 'pdf'
-    const isMusicXml = rawExtension === 'musicxml' || rawExtension === 'xml'
-    const extension = rawExtension || (isPdf ? 'pdf' : isMusicXml ? 'musicxml' : 'png')
+    const isMusicXml = rawExtension === 'musicxml' || rawExtension === 'xml' || rawExtension === 'mxl'
+    const extension = rawExtension || (isPdf ? 'pdf' : isMusicXml ? (rawExtension === 'mxl' ? 'mxl' : 'musicxml') : 'png')
 
-    const fileType = isPdf ? 'pdf' : isMusicXml ? 'musicxml' : 'image'
+    const fileType = isPdf ? 'pdf' : isMusicXml ? (rawExtension === 'mxl' ? 'mxl' : 'musicxml') : 'image'
     const slug =
       title
         .toLowerCase()
@@ -381,7 +381,30 @@ export async function POST(req: NextRequest) {
 
       // Sistemas dentro de esta página: se guarda cada pentagrama/instrumento individualmente
       // para que el highlight resalte con precisión milimétrica el pentagrama del ejecutante.
-      const systemsList = pageData?.systems || []
+      let systemsList = pageData?.systems || []
+      const hasOnlyLowerStaff =
+        systemsList.length === 1 && (systemsList[0].bboxY ?? 0) > 0.40
+
+      if (systemsList.length === 0 || hasOnlyLowerStaff) {
+        const fallbackCount = 4
+        const mPerSys = Math.max(2, Math.round(totalMeasures / (totalPgCount * fallbackCount)))
+        const pageStartMeasure = (pNum - 1) * fallbackCount * mPerSys + 1
+        systemsList = []
+        for (let s = 1; s <= fallbackCount; s++) {
+          const sysStartM = pageStartMeasure + (s - 1) * mPerSys
+          systemsList.push({
+            systemOrder: s,
+            measureStart: sysStartM,
+            measureCount: mPerSys,
+            bboxX: 0.04,
+            bboxY: 0.14 + (s - 1) * 0.20,
+            bboxW: 0.92,
+            bboxH: 0.16,
+            confidence: 0.6,
+          })
+        }
+      }
+
       for (const sys of systemsList) {
         const stavesList = sys.staves && sys.staves.length > 0 ? sys.staves : [{
           staffOrder: 1,

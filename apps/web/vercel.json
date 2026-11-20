@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/vision-health-check",
+      "schedule": "0 9 * * *"
+    }
+  ]
+}

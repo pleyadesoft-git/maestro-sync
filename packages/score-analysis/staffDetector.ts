@@ -58,16 +58,22 @@ export function detectStaffLines(buf: PixelBuffer): StaffLineGroup[] {
     hpp[y] = darkCount / (endX - startX)
   }
 
-  // 2. Encontrar picos locales de líneas horizontales
+  // 2. Encontrar centros de picos de líneas horizontales (resistente a líneas de grosor > 1px)
   const peaks: number[] = []
-  const PEAK_THRESHOLD = 0.25 // Al menos 25% de la fila es línea negra
+  const PEAK_THRESHOLD = 0.28 // Al menos 28% de la fila es línea negra
+  let segStart = -1
 
-  for (let y = 2; y < height - 2; y++) {
-    const val = hpp[y]
-    if (val > PEAK_THRESHOLD && val > hpp[y - 1] && val > hpp[y + 1] && val >= hpp[y - 2] && val >= hpp[y + 2]) {
-      peaks.push(y)
+  for (let y = 0; y < height; y++) {
+    if (hpp[y] >= PEAK_THRESHOLD) {
+      if (segStart === -1) segStart = y
+    } else {
+      if (segStart !== -1) {
+        peaks.push(Math.round((segStart + y - 1) / 2))
+        segStart = -1
+      }
     }
   }
+  if (segStart !== -1) peaks.push(Math.round((segStart + height - 1) / 2))
 
   // 3. Agrupar picos en quintetos (5 líneas con espaciado uniforme)
   const staves: StaffLineGroup[] = []
@@ -93,8 +99,8 @@ export function detectStaffLines(buf: PixelBuffer): StaffLineGroup[] {
       Math.abs(d4 - avgSpacing)
     )
 
-    // Un pentagrama típico tiene espaciado entre 4px y 30px (según DPI) y variación <= 2px
-    if (avgSpacing >= 4 && avgSpacing <= 35 && maxDiff <= Math.max(2, avgSpacing * 0.2)) {
+    // Un pentagrama típico tiene espaciado entre 4px y 35px y variación <= 30% del espaciado
+    if (avgSpacing >= 4 && avgSpacing <= 35 && maxDiff <= Math.max(2.5, avgSpacing * 0.3)) {
       staves.push({
         topY: p0,
         bottomY: p4,
@@ -176,8 +182,13 @@ export function analyzePageImage(
   let currentMeasure = startingMeasure
 
   // Si no se detectaron pentagramas con proyección (ej. imagen de baja resolución o página de texto),
-  // se genera una cuadrícula estructurada de respaldo
-  if (detectedStaffGroups.length === 0) {
+  // o si sólo se detectó un pentagrama aislado en la parte baja de la página (> 0.40),
+  // se genera una cuadrícula estructurada de respaldo que cubre la página de arriba a abajo.
+  const hasOnlyLowerStaff =
+    detectedStaffGroups.length === 1 &&
+    detectedStaffGroups[0].topY / height > 0.40
+
+  if (detectedStaffGroups.length === 0 || hasOnlyLowerStaff) {
     const fallbackSystemCount = 4
     for (let s = 1; s <= fallbackSystemCount; s++) {
       const bboxY = 0.12 + (s - 1) * 0.2
@@ -226,7 +237,7 @@ export function analyzePageImage(
   }
 
   // Agrupar pentagramas en sistemas
-  // Si la separación entre pentagramas consecutivos es grande (> 3 * lineSpacing * 5), es un nuevo sistema
+  // Si la separación entre pentagramas consecutivos supera 6.5x el espaciado de línea, es un nuevo sistema
   const systemsGroups: StaffLineGroup[][] = []
   let currentSystem: StaffLineGroup[] = [detectedStaffGroups[0]]
 
@@ -234,7 +245,7 @@ export function analyzePageImage(
     const prev = detectedStaffGroups[k - 1]
     const cur = detectedStaffGroups[k]
     const gap = cur.topY - prev.bottomY
-    const thresholdGap = prev.lineSpacing * 9
+    const thresholdGap = prev.lineSpacing * 6.5
 
     if (gap > thresholdGap) {
       systemsGroups.push(currentSystem)

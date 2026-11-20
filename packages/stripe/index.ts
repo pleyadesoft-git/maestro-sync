@@ -106,3 +106,35 @@ export const PLANS_CONFIG = {
     trialDays: null,
   },
 } as const
+
+export async function cancelStripeSubscription({
+  stripeSubscriptionId,
+  immediate = false,
+}: {
+  stripeSubscriptionId: string
+  immediate?: boolean
+}) {
+  const stripe = getStripeServerInstance()
+  if (immediate) {
+    return await stripe.subscriptions.cancel(stripeSubscriptionId)
+  }
+  return await stripe.subscriptions.update(stripeSubscriptionId, {
+    cancel_at_period_end: true,
+  })
+}
+
+export async function reactivateStripeSubscription({
+  stripeSubscriptionId,
+}: {
+  stripeSubscriptionId: string
+}) {
+  const stripe = getStripeServerInstance()
+  return await stripe.subscriptions.update(stripeSubscriptionId, {
+    cancel_at_period_end: false,
+  })
+}
+
+export async function getStripeSubscription(stripeSubscriptionId: string) {
+  const stripe = getStripeServerInstance()
+  return await stripe.subscriptions.retrieve(stripeSubscriptionId)
+}

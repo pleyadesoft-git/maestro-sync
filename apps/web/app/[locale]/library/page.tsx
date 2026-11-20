@@ -6,10 +6,11 @@ import { useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import { Button, Card, CardHeader, CardTitle, CardDescription, Input } from '@music-flow/ui'
 import { createBrowserClient } from '@music-flow/supabase'
-import { Search, Plus, Play, Filter, BookOpen, Clock, ArrowLeft, AlertCircle, Loader2, LogIn, FileText, Trash2, Fingerprint, CheckCircle2 } from 'lucide-react'
+import { Search, Plus, Play, Filter, BookOpen, Clock, ArrowLeft, AlertCircle, Loader2, LogIn, FileText, Trash2, Fingerprint, CheckCircle2, CreditCard } from 'lucide-react'
 import { createRoomForVersion, fetchLatestVersion } from '../../../lib/rooms'
 import { performWebAuthnRegister, isWebAuthnSupported } from '../../../lib/webauthn-client'
 import LanguageSwitcher from '../../components/LanguageSwitcher'
+import SubscriptionModal from '../../components/SubscriptionModal'
 
 interface LibraryWork {
   id: string
@@ -26,6 +27,7 @@ export default function LibraryPage({ params }: { params: Promise<{ locale: stri
   const { locale } = React.use(params)
   const t = useTranslations('library')
   const tKeys = useTranslations('keySignatures')
+  const tSub = useTranslations('subscription')
   const router = useRouter()
   const supabase = createBrowserClient()
 
@@ -43,6 +45,7 @@ export default function LibraryPage({ params }: { params: Promise<{ locale: stri
   const [actionError, setActionError] = useState<string | null>(null)
   const [passkeyStatus, setPasskeyStatus] = useState<string | null>(null)
   const [passkeyLoading, setPasskeyLoading] = useState(false)
+  const [subModalOpen, setSubModalOpen] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -213,6 +216,19 @@ export default function LibraryPage({ params }: { params: Promise<{ locale: stri
               >
                 <Fingerprint className="w-4 h-4 mr-1.5 text-amber-400" />
                 <span>{passkeyLoading ? t('activatingPasskey') : t('linkPasskey')}</span>
+              </Button>
+            )}
+
+            {!isAnon && phase === 'ready' && (
+              <Button
+                type="button"
+                variant="secondary"
+                size="md"
+                onClick={() => setSubModalOpen(true)}
+                className="border-slate-800 hover:border-amber-500/40 text-xs sm:text-sm"
+              >
+                <CreditCard className="w-4 h-4 mr-1.5 text-amber-400" />
+                <span>{tSub('mySubscription')}</span>
               </Button>
             )}
 
@@ -420,6 +436,12 @@ export default function LibraryPage({ params }: { params: Promise<{ locale: stri
             )}
           </>
         )}
+
+        <SubscriptionModal
+          isOpen={subModalOpen}
+          onClose={() => setSubModalOpen(false)}
+          locale={locale}
+        />
       </div>
     </main>
   )

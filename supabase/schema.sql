@@ -79,11 +79,11 @@ create table public.scores (
   work_version_id uuid not null references public.work_versions(id) on delete cascade,
   owner_id uuid not null references public.profiles(id) on delete cascade,
   file_path text not null,          -- path en Supabase Storage (bucket privado)
-  file_type text not null check (file_type in ('pdf', 'image')),
+  file_type text not null check (file_type in ('pdf', 'image', 'musicxml', 'mxl')),
   page_count int not null default 1,
   status text not null default 'uploaded'
     check (status in ('uploaded', 'processing_omr', 'ready', 'error')),
-  omr_engine text,                  -- 'oemer', 'audiveris', 'halbestunde', 'manual'
+  omr_engine text,                  -- 'oemer', 'audiveris', 'halbestunde', 'manual', 'musicxml', 'auto'
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -353,14 +353,51 @@ create policy "profiles_update_own" on public.profiles
 create policy "profiles_admin_update" on public.profiles
   for update using (public.is_platform_admin()) with check (public.is_platform_admin());
 
+-- Helpers SECURITY DEFINER para evitar recursión infinita entre políticas RLS
+create or replace function public.is_work_owner(p_work_id uuid)
+returns boolean
+language sql stable security definer
+set search_path = public, pg_temp
+as $$
+  select exists (
+    select 1 from public.works w
+    where w.id = p_work_id and w.owner_id = auth.uid()
+  );
+$$;
+
+create or replace function public.is_work_session_participant(p_work_id uuid)
+returns boolean
+language sql stable security definer
+set search_path = public, pg_temp
+as $$
+  select exists (
+    select 1
+    from public.work_versions wv
+    join public.sessions s on s.work_version_id = wv.id
+    join public.session_participants sp
+      on sp.session_id = s.id and sp.user_id = auth.uid()
+    where wv.work_id = p_work_id
+  );
+$$;
+
+create or replace function public.is_session_director(p_session_id uuid)
+returns boolean
+language sql stable security definer
+set search_path = public, pg_temp
+as $$
+  select exists (
+    select 1 from public.sessions s
+    where s.id = p_session_id and s.director_user_id = auth.uid()
+  );
+$$;
+
 -- --- works / work_versions / scores / score_pages / score_systems: privado por dueño ---
 create policy "works_owner_all" on public.works
   for all using (owner_id = auth.uid()) with check (owner_id = auth.uid());
 
 create policy "work_versions_owner_all" on public.work_versions
-  for all using (
-    exists (select 1 from public.works w where w.id = work_id and w.owner_id = auth.uid())
-  );
+  for all using (public.is_work_owner(work_id))
+  with check (public.is_work_owner(work_id));
 
 create policy "scores_owner_all" on public.scores
   for all using (owner_id = auth.uid()) with check (owner_id = auth.uid());
@@ -416,24 +453,11 @@ create policy "session_participants_self_update" on public.session_participants
   for update using (user_id = auth.uid()) with check (user_id = auth.uid());
 
 create policy "session_participants_director_select" on public.session_participants
-  for select using (
-    exists (
-      select 1 from public.sessions s
-      where s.id = session_id and s.director_user_id = auth.uid()
-    )
-  );
+  for select using (public.is_session_director(session_id));
 
 -- --- participantes de la sesión: pueden leer la partitura en uso ---
 create policy "works_session_participant_select" on public.works
-  for select using (
-    exists (
-      select 1 from public.work_versions wv
-      join public.sessions s on s.work_version_id = wv.id
-      join public.session_participants sp
-        on sp.session_id = s.id and sp.user_id = auth.uid()
-      where wv.work_id = works.id
-    )
-  );
+  for select using (public.is_work_session_participant(id));
 
 create policy "work_versions_session_participant_select" on public.work_versions
   for select using (

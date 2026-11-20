@@ -26,11 +26,38 @@ import {
 } from 'lucide-react'
 
 const KEY_SIGNATURES = [
-  'C major', 'G major', 'D major', 'A major', 'E major', 'Bb major', 'F major',
-  'A minor', 'E minor', 'B minor', 'F# minor', 'D minor', 'G minor', 'C minor',
+  'C major', 'G major', 'D major', 'A major', 'E major', 'B major', 'F# major',
+  'F major', 'Bb major', 'Eb major', 'Ab major', 'Db major',
+  'A minor', 'E minor', 'B minor', 'F# minor', 'C# minor', 'G# minor',
+  'D minor', 'G minor', 'C minor', 'F minor', 'Bb minor', 'Eb minor',
 ]
 
-const TIME_SIGNATURES = ['2/4', '3/4', '4/4', '6/8', '2/2', '3/8', '12/8']
+const TIME_SIGNATURES = ['2/4', '3/4', '4/4', '5/4', '6/4', '6/8', '9/8', '12/8', '2/2', '3/8', '7/8']
+
+async function compressDataUrlForVision(dataUrl: string, maxWidth = 1024): Promise<string> {
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image()
+      el.onload = () => resolve(el)
+      el.onerror = reject
+      el.src = dataUrl
+    })
+    const scale = img.width > maxWidth ? maxWidth / img.width : 1
+    const w = Math.max(1, Math.round(img.width * scale))
+    const h = Math.max(1, Math.round(img.height * scale))
+    const canvas = document.createElement('canvas')
+    canvas.width = w
+    canvas.height = h
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return dataUrl
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, w, h)
+    ctx.drawImage(img, 0, 0, w, h)
+    return canvas.toDataURL('image/jpeg', 0.8)
+  } catch {
+    return dataUrl
+  }
+}
 
 const STANDARD_INSTRUMENTS_BY_LOCALE: Record<'es' | 'en', string[]> = {
   es: [
@@ -73,6 +100,7 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
   const [fileName, setFileName] = useState<string | null>(null)
   const [fileError, setFileError] = useState<string | null>(null)
   const [fileType, setFileType] = useState<'pdf' | 'image' | 'musicxml'>('pdf')
+  const [musicXmlContent, setMusicXmlContent] = useState<string | null>(null)
   const [copyrightAccepted, setCopyrightAccepted] = useState(false)
   const [consentError, setConsentError] = useState<string | null>(null)
 
@@ -88,6 +116,8 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
   const [analysisStage, setAnalysisStage] = useState('')
   const [analysisResult, setAnalysisResult] = useState<ScoreAnalysisResult | null>(null)
   const [autoDetectedBadge, setAutoDetectedBadge] = useState<string | null>(null)
+  const [isEnriching, setIsEnriching] = useState(false)
+  const [enrichmentBadge, setEnrichmentBadge] = useState<string | null>(null)
 
   // Páginas renderizadas y navegación
   const [pageImages, setPageImages] = useState<Array<{ pageNumber: number; dataUrl: string; width: number; height: number }>>([])
@@ -119,6 +149,98 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
   const activePageObj = pagesData.find((p) => p.pageNumber === currentPage)
   const currentSystems = activePageObj?.systems || []
 
+  const runMetadataEnrichment = async (opts: {
+    images?: Array<{ dataUrl: string }>
+    hints?: { title?: string; composer?: string; fileName?: string }
+    currentPartsCount?: number
+  }) => {
+    setIsEnriching(true)
+    setEnrichmentBadge(null)
+    try {
+      const { data: sessionData } = await supabase.auth.getSession()
+      const token = sessionData.session?.access_token
+      if (!token) return
+
+      const rawImages = opts.images || []
+      const selectedUrls: string[] = []
+      if (rawImages.length > 0) {
+        selectedUrls.push(await compressDataUrlForVision(rawImages[0].dataUrl))
+        if (rawImages.length > 1) {
+          selectedUrls.push(await compressDataUrlForVision(rawImages[rawImages.length - 1].dataUrl))
+        }
+      }
+
+      const res = await fetch('/api/scores/enrich-metadata', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          images: selectedUrls,
+          hints: opts.hints,
+        }),
+      })
+
+      if (!res.ok) return
+      const data = await res.json()
+      if (!data?.ok || !data?.metadata) return
+
+      const m = data.metadata
+      let filledAny = false
+      if (m.title) { setTitle(m.title); filledAny = true }
+      if (m.composer) { setComposer(m.composer); filledAny = true }
+      if (m.catalogRef) { setCatalogRef(m.catalogRef); filledAny = true }
+      if (m.keySignature && KEY_SIGNATURES.includes(m.keySignature)) {
+        setKeySignature(m.keySignature)
+        filledAny = true
+      }
+      if (m.timeSignature && TIME_SIGNATURES.includes(m.timeSignature)) {
+        setTimeSignature(m.timeSignature)
+        filledAny = true
+      }
+      if (typeof m.tempoBpm === 'number' && m.tempoBpm >= 30 && m.tempoBpm <= 320) {
+        setTempo(m.tempoBpm)
+        filledAny = true
+      }
+      if (typeof m.totalMeasures === 'number' && m.totalMeasures >= 1 && m.totalMeasures <= 9999) {
+        setTotalMeasures(m.totalMeasures)
+        filledAny = true
+      }
+      if (Array.isArray(m.instruments) && m.instruments.length > 0 && (opts.currentPartsCount ?? parts.length) <= 1) {
+        setParts(
+          m.instruments.map((inst: string, idx: number) => ({
+            name: inst,
+            instrumentCode: 'violin_1',
+            partOrder: idx + 1,
+          }))
+        )
+        setSelectedPartIndex(0)
+        filledAny = true
+      }
+
+      const sourcesList: string[] = []
+      if (data.visionProviderUsed) sourcesList.push(data.visionProviderUsed)
+      if (Array.isArray(data.catalogSourcesUsed)) {
+        for (const s of data.catalogSourcesUsed) {
+          if (s === 'musicbrainz') sourcesList.push('MusicBrainz')
+          else if (s === 'openopus') sourcesList.push('OpenOpus')
+          else sourcesList.push(s)
+        }
+      }
+
+      if (filledAny && sourcesList.length > 0) {
+        setEnrichmentBadge(t('enrichedBadge', { sources: sourcesList.join(' + ') }))
+      } else if (!filledAny && !opts.images?.length) {
+        setEnrichmentBadge(t('enrichNotFound'))
+      }
+    } catch (err) {
+      console.warn('Error en enriquecimiento en línea:', err)
+    } finally {
+      setIsEnriching(false)
+    }
+  }
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const selectedFile = e.target.files[0]
@@ -126,6 +248,7 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
       setFileName(selectedFile.name)
       setFileError(null)
       setSaveError(null)
+      setEnrichmentBadge(null)
       setIsAnalyzing(true)
       setAnalysisProgress(10)
       setAnalysisStage(t('startingRead'))
@@ -133,7 +256,7 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
       try {
         const output: ProcessedScoreOutput = await processScoreFile(selectedFile, (stage, prog) => {
           setAnalysisStage(stage)
-          setAnalysisProgress(prog)
+          setAnalysisProgress(Math.min(85, prog))
         })
 
         setFileType(output.fileType)
@@ -141,7 +264,20 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
         setPageImages(output.pageImages)
         setCurrentPage(1)
 
-        // Rellenar automáticamente los metadatos detectados
+        if (output.fileType === 'musicxml') {
+          try {
+            const xml = await selectedFile.text()
+            setMusicXmlContent(xml)
+            setViewMode('digital')
+          } catch {
+            /* ignore */
+          }
+        } else {
+          setMusicXmlContent(null)
+          setViewMode('uploaded')
+        }
+
+        // Rellenar automáticamente los metadatos detectados localmente
         if (output.analysis.title) setTitle(output.analysis.title)
         if (output.analysis.composer) setComposer(output.analysis.composer)
         if (output.analysis.catalogRef) setCatalogRef(output.analysis.catalogRef)
@@ -173,6 +309,22 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
           setAutoDetectedBadge(t('autoDetectedSingle', { conf: confPct }))
         }
         setViewMode('uploaded')
+
+        // Para PDF e Imágenes, consultar automáticamente Visión IA (failover) + MusicBrainz/OpenOpus
+        if (output.fileType !== 'musicxml') {
+          setAnalysisStage(t('enrichingStage'))
+          setAnalysisProgress(92)
+          await runMetadataEnrichment({
+            images: output.pageImages,
+            hints: {
+              title: output.analysis.title,
+              composer: output.analysis.composer,
+              fileName: selectedFile.name,
+            },
+            currentPartsCount: detectedParts.length,
+          })
+          setAnalysisProgress(100)
+        }
       } catch (err: any) {
         console.warn('Error en análisis automático:', err)
         setFileError(err?.message || t('analysisFallbackError'))
@@ -533,6 +685,47 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                 )}
               </div>
 
+              {/* Barra de Enriquecimiento con Visión IA y Catálogos Abiertos */}
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3">
+                <div className="flex items-center gap-2 text-xs text-slate-300">
+                  <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>
+                    {enrichmentBadge
+                      ? enrichmentBadge
+                      : t('enrichingStage')}
+                  </span>
+                </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={isEnriching || isAnalyzing || (!pageImages.length && !title.trim() && !fileName)}
+                  onClick={() =>
+                    runMetadataEnrichment({
+                      images: pageImages,
+                      hints: {
+                        title: title.trim() || undefined,
+                        composer: composer.trim() || undefined,
+                        fileName: fileName || undefined,
+                      },
+                      currentPartsCount: parts.length,
+                    })
+                  }
+                >
+                  {isEnriching ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                      {t('enrichingButton')}
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-3.5 h-3.5 mr-1.5 text-amber-400" />
+                      {t('enrichButton')}
+                    </>
+                  )}
+                </Button>
+              </div>
+
               {/* Form Metadata Fields */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Input
@@ -844,6 +1037,8 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                     composer={composer || t('composerLabel')}
                     timeSignature={timeSignature}
                     selectedInstrument={parts[selectedPartIndex]?.name || allInstrumentsLabel}
+                    musicXml={musicXmlContent}
+                    viewMode={fileType === 'musicxml' ? 'digital' : viewMode === 'uploaded' ? 'facsimile' : 'digital'}
                     labels={{
                       facsimile: tSheet('facsimile'),
                       digitalSvg: tSheet('digitalSvg'),

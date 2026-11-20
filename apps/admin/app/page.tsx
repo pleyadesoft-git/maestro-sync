@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Card, CardHeader, CardTitle, CardDescription, Button, Input } from '@music-flow/ui'
 import { createBrowserClient } from '@music-flow/supabase'
 import {
@@ -8,9 +8,12 @@ import {
   setUserSuspended,
   generateCourtesyCodeAction,
   revokeCourtesyCodeAction,
+  cancelSubscriptionAdminAction,
+  reactivateSubscriptionAdminAction,
   type AdminOverview,
   type CourtesyCodeRecord,
   type CourtesyPlanCode,
+  type DashboardUser,
 } from './admin-actions'
 import {
   Users,
@@ -35,6 +38,8 @@ import {
   XCircle,
   Plus,
   Sparkles,
+  RotateCcw,
+  X,
 } from 'lucide-react'
 import { VisionProvidersManager } from './components/VisionProvidersManager'
 
@@ -58,6 +63,13 @@ export default function AdminDashboard() {
   const [lastCreatedCode, setLastCreatedCode] = useState<CourtesyCodeRecord | null>(null)
   const [copiedCode, setCopiedCode] = useState<string | null>(null)
   const [revokingCodeId, setRevokingCodeId] = useState<string | null>(null)
+
+  // Estados para Cancelación y Reactivación de Suscripciones
+  const [cancelModalUser, setCancelModalUser] = useState<DashboardUser | null>(null)
+  const [cancelImmediate, setCancelImmediate] = useState(false)
+  const [cancelReason, setCancelReason] = useState('')
+  const [subActionLoading, setSubActionLoading] = useState(false)
+  const cancelDialogRef = useRef<HTMLDialogElement>(null)
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -236,6 +248,60 @@ export default function AdminDashboard() {
       setOverview(data)
     } catch (e: any) {
       setActionError(String(e?.message ?? e))
+    } finally {
+      setBusyUserId(null)
+    }
+  }
+
+  const handleOpenCancelModal = (user: DashboardUser) => {
+    setCancelModalUser(user)
+    setCancelImmediate(false)
+    setCancelReason('')
+    setTimeout(() => {
+      cancelDialogRef.current?.showModal()
+    }, 0)
+  }
+
+  const handleCloseCancelModal = () => {
+    cancelDialogRef.current?.close()
+    setCancelModalUser(null)
+  }
+
+  const handleConfirmCancelSub = async () => {
+    if (!cancelModalUser) return
+    setSubActionLoading(true)
+    setActionError(null)
+    try {
+      const token = await getToken()
+      if (!token) throw new Error('Sesión expirada. Vuelve a iniciar sesión.')
+      await cancelSubscriptionAdminAction(token, {
+        userId: cancelModalUser.id,
+        immediate: cancelImmediate,
+        reason: cancelReason || undefined,
+      })
+      handleCloseCancelModal()
+      const data = await getAdminOverview(token)
+      setOverview(data)
+    } catch (e: any) {
+      setActionError('Error al cancelar suscripción: ' + String(e?.message ?? e))
+    } finally {
+      setSubActionLoading(false)
+    }
+  }
+
+  const handleReactivateSub = async (user: DashboardUser) => {
+    setBusyUserId(user.id)
+    setActionError(null)
+    try {
+      const token = await getToken()
+      if (!token) throw new Error('Sesión expirada. Vuelve a iniciar sesión.')
+      await reactivateSubscriptionAdminAction(token, {
+        userId: user.id,
+      })
+      const data = await getAdminOverview(token)
+      setOverview(data)
+    } catch (e: any) {
+      setActionError('Error al reactivar suscripción: ' + String(e?.message ?? e))
     } finally {
       setBusyUserId(null)
     }
@@ -966,19 +1032,54 @@ export default function AdminDashboard() {
 
                         {/* Acción */}
                         <td className="py-4 px-4 text-right">
-                          <Button
-                            onClick={() => toggleSuspendUser(user.id)}
-                            variant={user.suspended ? 'secondary' : 'danger'}
-                            size="sm"
-                            disabled={busyUserId !== null}
-                          >
-                            <UserX className="w-3.5 h-3.5 mr-1" />
-                            {busyUserId === user.id
-                              ? 'Aplicando…'
-                              : user.suspended
-                                ? 'Reinstalar'
-                                : 'Suspender'}
-                          </Button>
+                          <div className="flex items-center justify-end gap-2 flex-wrap">
+                            {/* Control de Cancelación / Reactivación de Suscripción */}
+                            {user.subscriptionId &&
+                              !user.isCourtesy &&
+                              (user.paymentStatus === 'active' ||
+                                user.paymentStatus === 'trialing' ||
+                                user.paymentStatus === 'past_due') && (
+                                <>
+                                  {user.cancelAtPeriodEnd ? (
+                                    <Button
+                                      onClick={() => handleReactivateSub(user)}
+                                      variant="outline"
+                                      size="sm"
+                                      disabled={busyUserId !== null}
+                                      className="border-amber-500/30 text-amber-300 hover:bg-amber-500/10 text-xs"
+                                    >
+                                      <RotateCcw className="w-3.5 h-3.5 mr-1" />
+                                      {busyUserId === user.id ? 'Reactivando…' : 'Reactivar'}
+                                    </Button>
+                                  ) : (
+                                    <Button
+                                      onClick={() => handleOpenCancelModal(user)}
+                                      variant="outline"
+                                      size="sm"
+                                      disabled={busyUserId !== null}
+                                      className="border-rose-500/30 text-rose-300 hover:bg-rose-950/20 text-xs"
+                                    >
+                                      <XCircle className="w-3.5 h-3.5 mr-1" />
+                                      Cancelar Sub
+                                    </Button>
+                                  )}
+                                </>
+                              )}
+
+                            <Button
+                              onClick={() => toggleSuspendUser(user.id)}
+                              variant={user.suspended ? 'secondary' : 'danger'}
+                              size="sm"
+                              disabled={busyUserId !== null}
+                            >
+                              <UserX className="w-3.5 h-3.5 mr-1" />
+                              {busyUserId === user.id
+                                ? 'Aplicando…'
+                                : user.suspended
+                                  ? 'Reinstalar'
+                                  : 'Suspender'}
+                            </Button>
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -1388,6 +1489,137 @@ export default function AdminDashboard() {
 
         {/* TAB 5: PROVEEDORES DE VISIÓN IA (CRUD + DRAG & DROP FAILOVER) */}
         {activeTab === 'ai_vision' && <VisionProvidersManager getToken={getToken} />}
+
+        {/* Modal de Cancelación de Suscripción para Administradores */}
+        <dialog
+          ref={cancelDialogRef}
+          onClose={handleCloseCancelModal}
+          aria-labelledby="admin-cancel-dialog-title"
+          className="m-auto p-0 bg-transparent text-slate-100 max-w-md w-full rounded-2xl shadow-2xl backdrop:bg-slate-950/80 backdrop:backdrop-blur-sm"
+        >
+          {cancelModalUser && (
+            <div className="p-6 bg-slate-900 border border-slate-800 rounded-2xl shadow-xl space-y-5 text-slate-100">
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <h3 id="admin-cancel-dialog-title" className="text-lg font-bold text-slate-100">
+                    Cancelar Suscripción
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Usuario: <strong className="text-slate-200">{cancelModalUser.name}</strong> ({cancelModalUser.email})
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    Plan actual: <span className="text-amber-400 font-medium">{cancelModalUser.planName}</span>
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCloseCancelModal}
+                  className="p-1 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+                  aria-label="Cerrar modal"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                <label className="text-xs font-semibold text-slate-300 block">
+                  Modalidad de cancelación:
+                </label>
+
+                <label
+                  className={`p-3.5 rounded-xl border flex items-start gap-3 cursor-pointer transition-all ${
+                    !cancelImmediate
+                      ? 'bg-amber-500/10 border-amber-500/40 text-slate-100'
+                      : 'bg-slate-950/40 border-slate-800 text-slate-400'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="admin_cancel_type"
+                    checked={!cancelImmediate}
+                    onChange={() => setCancelImmediate(false)}
+                    className="mt-0.5 accent-amber-500"
+                  />
+                  <div className="space-y-0.5">
+                    <div className="text-xs font-bold text-slate-200">
+                      Al final del ciclo (Recomendado)
+                    </div>
+                    <div className="text-[11px] text-slate-400">
+                      El usuario conserva acceso hasta:{' '}
+                      {cancelModalUser.currentPeriodEnd
+                        ? new Date(cancelModalUser.currentPeriodEnd).toLocaleDateString('es-ES', {
+                            day: '2-digit',
+                            month: 'short',
+                            year: 'numeric',
+                          })
+                        : 'fin de período'}
+                    </div>
+                  </div>
+                </label>
+
+                <label
+                  className={`p-3.5 rounded-xl border flex items-start gap-3 cursor-pointer transition-all ${
+                    cancelImmediate
+                      ? 'bg-rose-950/20 border-rose-500/40 text-slate-100'
+                      : 'bg-slate-950/40 border-slate-800 text-slate-400'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="admin_cancel_type"
+                    checked={cancelImmediate}
+                    onChange={() => setCancelImmediate(true)}
+                    className="mt-0.5 accent-rose-500"
+                  />
+                  <div className="space-y-0.5">
+                    <div className="text-xs font-bold text-slate-200">
+                      Inmediatamente
+                    </div>
+                    <div className="text-[11px] text-slate-400">
+                      Cancela el acceso en el acto y finaliza la suscripción en Stripe.
+                    </div>
+                  </div>
+                </label>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs text-slate-400 block font-medium">
+                  Motivo de la acción (para auditoría):
+                </label>
+                <input
+                  type="text"
+                  placeholder="ej. Solicitud de soporte, devolución, etc."
+                  value={cancelReason}
+                  onChange={(e) => setCancelReason(e.target.value)}
+                  className="w-full h-10 px-3 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-200 focus:outline-none focus:border-amber-500/60"
+                />
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-3">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  autoFocus
+                  onClick={handleCloseCancelModal}
+                  disabled={subActionLoading}
+                  size="sm"
+                >
+                  Mantener
+                </Button>
+
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={handleConfirmCancelSub}
+                  disabled={subActionLoading}
+                  size="sm"
+                >
+                  {subActionLoading ? 'Cancelando…' : 'Confirmar Cancelación'}
+                </Button>
+              </div>
+            </div>
+          )}
+        </dialog>
       </div>
     </main>
   )

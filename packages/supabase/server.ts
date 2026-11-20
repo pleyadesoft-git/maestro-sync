@@ -717,5 +717,6 @@ export async function redeemCourtesyCode(params: {
 
 export * from './vision-providers'
 export * from './score-enrichment'
+export * from './vision-health-check'
 
 

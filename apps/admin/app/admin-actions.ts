@@ -1,6 +1,7 @@
 'use server'
 
 import { createAuthedClient } from '@music-flow/supabase'
+import { cancelStripeSubscription, reactivateStripeSubscription } from '@music-flow/stripe'
 import {
   createServiceRoleClient,
   getSuperAdminEmails,
@@ -14,12 +15,14 @@ import {
   deleteVisionProvider,
   reorderVisionProviders,
   testVisionProviderConnection,
+  runAllVisionProvidersHealthCheck,
   type CourtesyCodeRecord,
   type CourtesyPlanCode,
   type VisionProviderRecord,
   type VisionProviderType,
   type CreateVisionProviderInput,
   type UpdateVisionProviderInput,
+  type VisionHealthCheckReport,
 } from '@music-flow/supabase/server'
 
 export type {
@@ -29,6 +32,7 @@ export type {
   VisionProviderType,
   CreateVisionProviderInput,
   UpdateVisionProviderInput,
+  VisionHealthCheckReport,
 }
 
 export type DashboardUser = {
@@ -49,6 +53,7 @@ export type DashboardUser = {
   cancelAtPeriodEnd: boolean
   stripeCustomerId: string | null
   stripeSubscriptionId: string | null
+  subscriptionId: string | null
 }
 
 export type DashboardSuperAdmin = {
@@ -423,6 +428,7 @@ export async function getAdminOverview(accessToken: string): Promise<AdminOvervi
       cancelAtPeriodEnd: Boolean(sub?.cancel_at_period_end),
       stripeCustomerId: sub?.stripe_customer_id ?? null,
       stripeSubscriptionId: sub?.stripe_subscription_id ?? null,
+      subscriptionId: sub?.id ?? null,
     }
   })
 
@@ -619,6 +625,186 @@ export async function testVisionProviderAction(
 }> {
   await requireAdmin(accessToken)
   return await testVisionProviderConnection(id)
+}
+
+export async function runVisionHealthCheckAction(
+  accessToken: string
+): Promise<VisionHealthCheckReport> {
+  await requireAdmin(accessToken)
+  return await runAllVisionProvidersHealthCheck()
+}
+
+
+// =====================================================================
+// GESTIÓN DE SUSCRIPCIONES (CANCELACIÓN / REACTIVACIÓN ADMINISTRATIVA)
+// =====================================================================
+
+export async function cancelSubscriptionAdminAction(
+  accessToken: string,
+  {
+    subscriptionId,
+    userId,
+    immediate = false,
+    reason,
+  }: {
+    subscriptionId?: string
+    userId?: string
+    immediate?: boolean
+    reason?: string
+  }
+): Promise<void> {
+  const { adminId } = await requireAdmin(accessToken)
+  const admin = createServiceRoleClient()
+
+  let query = admin.from('subscriptions').select('*')
+  if (subscriptionId) {
+    query = query.eq('id', subscriptionId)
+  } else if (userId) {
+    query = query.eq('owner_user_id', userId)
+  } else {
+    throw new Error('Debes proveer un subscriptionId o userId.')
+  }
+
+  const { data: sub, error: subError } = await query
+    .in('status', ['active', 'trialing', 'past_due'])
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (subError || !sub) {
+    throw new Error('No se encontró una suscripción activa para cancelar.')
+  }
+
+  const isStripe =
+    Boolean(sub.stripe_subscription_id) &&
+    !sub.stripe_subscription_id!.startsWith('courtesy-') &&
+    !sub.stripe_subscription_id!.startsWith('MS-')
+
+  let newStatus = sub.status
+  let newCancelAtPeriodEnd = !immediate
+
+  if (isStripe && sub.stripe_subscription_id) {
+    try {
+      const stripeSub = await cancelStripeSubscription({
+        stripeSubscriptionId: sub.stripe_subscription_id,
+        immediate,
+      })
+      if (immediate || stripeSub.status === 'canceled') {
+        newStatus = 'canceled'
+        newCancelAtPeriodEnd = false
+      } else {
+        newCancelAtPeriodEnd = Boolean(stripeSub.cancel_at_period_end)
+      }
+    } catch (stripeErr: any) {
+      if (stripeErr.code === 'resource_missing') {
+        newStatus = 'canceled'
+        newCancelAtPeriodEnd = false
+      } else {
+        throw new Error(stripeErr.message || 'Error cancelando en Stripe.')
+      }
+    }
+  } else {
+    if (immediate) {
+      newStatus = 'canceled'
+      newCancelAtPeriodEnd = false
+    } else {
+      newCancelAtPeriodEnd = true
+    }
+  }
+
+  const { error: updateErr } = await admin
+    .from('subscriptions')
+    .update({
+      status: newStatus as any,
+      cancel_at_period_end: newCancelAtPeriodEnd,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', sub.id)
+
+  if (updateErr) throw new Error(updateErr.message)
+
+  await admin.from('moderation_actions').insert({
+    admin_id: adminId,
+    action: immediate ? 'cancel_subscription_immediate' : 'cancel_subscription_period_end',
+    target_type: 'subscription',
+    target_id: sub.id,
+    reason: reason || (immediate ? 'Cancelada inmediatamente por admin' : 'Cancelación a fin de ciclo por admin'),
+  })
+
+  await admin.from('admin_notifications').insert({
+    type: immediate ? 'cancellation' : 'cancellation_scheduled',
+    payload: {
+      admin_id: adminId,
+      subscription_id: sub.id,
+      user_id: sub.owner_user_id,
+      immediate,
+      reason: reason || 'Acción administrativa',
+      canceled_at: new Date().toISOString(),
+    },
+  })
+}
+
+export async function reactivateSubscriptionAdminAction(
+  accessToken: string,
+  {
+    subscriptionId,
+    userId,
+  }: {
+    subscriptionId?: string
+    userId?: string
+  }
+): Promise<void> {
+  const { adminId } = await requireAdmin(accessToken)
+  const admin = createServiceRoleClient()
+
+  let query = admin.from('subscriptions').select('*')
+  if (subscriptionId) {
+    query = query.eq('id', subscriptionId)
+  } else if (userId) {
+    query = query.eq('owner_user_id', userId)
+  } else {
+    throw new Error('Debes proveer un subscriptionId o userId.')
+  }
+
+  const { data: sub, error: subError } = await query
+    .eq('cancel_at_period_end', true)
+    .in('status', ['active', 'trialing'])
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (subError || !sub) {
+    throw new Error('No se encontró una suscripción con cancelación programada para reactivar.')
+  }
+
+  const isStripe =
+    Boolean(sub.stripe_subscription_id) &&
+    !sub.stripe_subscription_id!.startsWith('courtesy-') &&
+    !sub.stripe_subscription_id!.startsWith('MS-')
+
+  if (isStripe && sub.stripe_subscription_id) {
+    await reactivateStripeSubscription({
+      stripeSubscriptionId: sub.stripe_subscription_id,
+    })
+  }
+
+  const { error: updateErr } = await admin
+    .from('subscriptions')
+    .update({
+      cancel_at_period_end: false,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', sub.id)
+
+  if (updateErr) throw new Error(updateErr.message)
+
+  await admin.from('moderation_actions').insert({
+    admin_id: adminId,
+    action: 'reactivate_subscription',
+    target_type: 'subscription',
+    target_id: sub.id,
+    reason: 'Reactivada desde el panel administrativo',
+  })
 }
 
 
