@@ -7,10 +7,12 @@ import { createClient } from '@supabase/supabase-js'
 export async function GET(request: NextRequest) {
   const publicOrigin = getPublicOrigin(request, 3002)
   const { searchParams } = new URL(request.url)
+  const cookieLocale = request.cookies.get('NEXT_LOCALE')?.value
+  const locale = cookieLocale === 'en' ? 'en' : 'es'
   const token_hash = searchParams.get('token_hash')
   const type = searchParams.get('type') as EmailOtpType | null
   const code = searchParams.get('code')
-  const next = searchParams.get('next') ?? '/es/library'
+  const next = searchParams.get('next') ?? `/${locale}/library`
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL
   const supabaseAnonKey =
@@ -19,7 +21,7 @@ export async function GET(request: NextRequest) {
     process.env.SUPABASE_PUBLISHABLE_KEY
 
   if (!supabaseUrl || !supabaseAnonKey) {
-    return NextResponse.redirect(`${publicOrigin}/es/login?error=missing_env`)
+    return NextResponse.redirect(`${publicOrigin}/${locale}/login?error=missing_env`)
   }
 
   const supabase = createClient(supabaseUrl, supabaseAnonKey)
@@ -33,7 +35,7 @@ export async function GET(request: NextRequest) {
     if (!error && data.user) {
       authedUser = data.user
     } else {
-      const loginUrl = new URL('/es/login', publicOrigin)
+      const loginUrl = new URL(`/${locale}/login`, publicOrigin)
       loginUrl.searchParams.set('error', 'token_expired')
       if (error?.message) {
         loginUrl.searchParams.set('details', error.message)
@@ -45,7 +47,7 @@ export async function GET(request: NextRequest) {
     if (!error && data.user) {
       authedUser = data.user
     } else {
-      const loginUrl = new URL('/es/login', publicOrigin)
+      const loginUrl = new URL(`/${locale}/login`, publicOrigin)
       loginUrl.searchParams.set('error', 'oauth_error')
       if (error?.message) {
         loginUrl.searchParams.set('details', error.message)
@@ -61,7 +63,7 @@ export async function GET(request: NextRequest) {
         authedUser.user_metadata?.full_name ||
         authedUser.user_metadata?.name ||
         authedUser.email?.split('@')[0] ||
-        'Usuario'
+        (locale === 'en' ? 'User' : 'Usuario')
 
       const isSuper = isSuperAdminEmail(authedUser.email)
 
@@ -75,7 +77,7 @@ export async function GET(request: NextRequest) {
         await admin.from('profiles').insert({
           id: authedUser.id,
           full_name: defaultName,
-          preferred_language: 'es',
+          preferred_language: locale,
           is_platform_admin: isSuper,
         })
       } else if (isSuper && !existingProfile.is_platform_admin) {
@@ -85,11 +87,11 @@ export async function GET(request: NextRequest) {
       /* fallback silencioso */
     }
 
-    const targetUrl = resolveSafeRedirectUrl(next, publicOrigin, '/es/library')
+    const targetUrl = resolveSafeRedirectUrl(next, publicOrigin, `/${locale}/library`)
     targetUrl.searchParams.set('confirmed', 'true')
     return NextResponse.redirect(targetUrl.toString())
   }
 
   // Si no hay token_hash ni code, redirigir a login
-  return NextResponse.redirect(`${publicOrigin}/es/login`)
+  return NextResponse.redirect(`${publicOrigin}/${locale}/login`)
 }

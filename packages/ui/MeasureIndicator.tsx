@@ -9,6 +9,7 @@ export interface MeasureIndicatorProps {
   bboxW: number // 0 - 1
   bboxH: number // 0 - 1
   measureNumber: number
+  measurePrefix?: string
   style?: MeasureIndicatorStyle
   isActive?: boolean
 }
@@ -19,6 +20,7 @@ export function MeasureIndicator({
   bboxW,
   bboxH,
   measureNumber,
+  measurePrefix = 'c.',
   style = 'subtle',
   isActive = true,
 }: MeasureIndicatorProps) {
@@ -37,7 +39,7 @@ export function MeasureIndicator({
         className="pointer-events-none z-20 -translate-y-2 -translate-x-1"
       >
         <span className="rounded bg-amber-400 text-slate-950 px-1.5 py-0.5 text-[10px] font-mono font-bold shadow-md shadow-amber-400/20 border border-amber-300">
-          c.{measureNumber}
+          {measurePrefix}{measureNumber}
         </span>
       </motion.div>
     )
@@ -79,7 +81,7 @@ export function MeasureIndicator({
       className="pointer-events-none z-15 box-border rounded-md border border-amber-400/50 bg-amber-400/15 shadow-[0_0_10px_rgba(251,191,36,0.2)] ring-2 ring-amber-400/10"
     >
       <span className="absolute top-0.5 right-1 rounded bg-slate-950/80 px-1 py-0.2 text-[9px] font-mono font-bold text-amber-300 border border-amber-500/30">
-        c.{measureNumber}
+        {measurePrefix}{measureNumber}
       </span>
     </motion.div>
   )

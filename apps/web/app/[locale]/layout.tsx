@@ -14,26 +14,35 @@ export const viewport: Viewport = {
   userScalable: false,
 }
 
-export const metadata: Metadata = {
-  title: 'MaestroSync — Lectura Sincronizada de Partituras',
-  description: 'App PWA para orquestas y agrupaciones musicales con resaltado en tiempo real.',
-  manifest: '/manifest.json',
-  applicationName: 'MaestroSync',
-  appleWebApp: {
-    capable: true,
-    statusBarStyle: 'black-translucent',
-    title: 'MaestroSync',
-  },
-  formatDetection: {
-    telephone: false,
-  },
-  icons: {
-    icon: '/favicon.ico',
-    apple: '/icons/apple-touch-icon.png',
-  },
-  other: {
-    'mobile-web-app-capable': 'yes',
-  },
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ locale: string }>
+}): Promise<Metadata> {
+  const { locale } = await params
+  const currentMessages = messages[locale as 'es' | 'en'] || messages.es
+
+  return {
+    title: currentMessages.metadata.title,
+    description: currentMessages.metadata.description,
+    manifest: '/manifest.json',
+    applicationName: 'MaestroSync',
+    appleWebApp: {
+      capable: true,
+      statusBarStyle: 'black-translucent',
+      title: 'MaestroSync',
+    },
+    formatDetection: {
+      telephone: false,
+    },
+    icons: {
+      icon: '/favicon.ico',
+      apple: '/icons/apple-touch-icon.png',
+    },
+    other: {
+      'mobile-web-app-capable': 'yes',
+    },
+  }
 }
 
 export default async function RootLayout({

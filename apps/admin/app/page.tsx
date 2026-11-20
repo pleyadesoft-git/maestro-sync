@@ -34,14 +34,16 @@ import {
   Check,
   XCircle,
   Plus,
+  Sparkles,
 } from 'lucide-react'
+import { VisionProvidersManager } from './components/VisionProvidersManager'
 
 type AuthPhase = 'loading' | 'anon' | 'forbidden' | 'ready'
 type Notification = AdminOverview['notifications'][number]
 
 export default function AdminDashboard() {
   const [authPhase, setAuthPhase] = useState<AuthPhase>('loading')
-  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'courtesies' | 'superadmins'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'courtesies' | 'superadmins' | 'ai_vision'>('overview')
   const [userSearch, setUserSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'trialing' | 'past_due' | 'expired'>('all')
   const [overview, setOverview] = useState<AdminOverview | null>(null)
@@ -49,7 +51,7 @@ export default function AdminDashboard() {
   const [actionError, setActionError] = useState<string | null>(null)
   const [busyUserId, setBusyUserId] = useState<string | null>(null)
 
-  // Estados para Generación de Cortesías de 1 Mes
+  // Estados para Generación de Cortesías de 7 Días
   const [courtesyPlan, setCourtesyPlan] = useState<CourtesyPlanCode>('solo_monthly')
   const [courtesyNote, setCourtesyNote] = useState('')
   const [generatingCode, setGeneratingCode] = useState(false)
@@ -531,7 +533,7 @@ export default function AdminDashboard() {
             size="sm"
           >
             <Gift className="w-4 h-4 mr-1.5" />
-            Cortesías 1 Mes ({courtesyCodes.length})
+            Cortesías 7 Días ({courtesyCodes.length})
           </Button>
           <Button
             onClick={() => setActiveTab('superadmins')}
@@ -540,6 +542,14 @@ export default function AdminDashboard() {
           >
             <Shield className="w-4 h-4 mr-1.5" />
             Super-Admins ({superAdmins.length})
+          </Button>
+          <Button
+            onClick={() => setActiveTab('ai_vision')}
+            variant={activeTab === 'ai_vision' ? 'primary' : 'ghost'}
+            size="sm"
+          >
+            <Sparkles className="w-4 h-4 mr-1.5" />
+            Visión IA (Failover)
           </Button>
         </div>
 
@@ -870,7 +880,7 @@ export default function AdminDashboard() {
                             >
                               {user.isCourtesy ? (
                                 <>
-                                  <Gift className="w-3.5 h-3.5" /> Cortesía 1 Mes
+                                  <Gift className="w-3.5 h-3.5" /> Cortesía 7 Días
                                 </>
                               ) : (
                                 <>
@@ -979,7 +989,7 @@ export default function AdminDashboard() {
           </Card>
         )}
 
-        {/* TAB 3: CORTESÍAS DE 1 MES */}
+        {/* TAB 3: CORTESÍAS DE 7 DÍAS */}
         {activeTab === 'courtesies' && (
           <div className="space-y-6">
             <Card className="border-amber-500/30 bg-slate-900/80">
@@ -989,9 +999,9 @@ export default function AdminDashboard() {
                     <Gift className="w-5 h-5" />
                   </div>
                   <div>
-                    <CardTitle>Generar Código de Cortesía (1 Mes)</CardTitle>
+                    <CardTitle>Generar Código de Cortesía (7 Días)</CardTitle>
                     <CardDescription>
-                      Genera un código de uso único que otorga 30 días gratuitos en el tier seleccionado (Solo, Band u Orchestra).
+                      Genera un código de uso único que otorga 7 días gratuitos en el tier seleccionado (Solo, Band u Orchestra).
                     </CardDescription>
                   </div>
                 </div>
@@ -1000,7 +1010,7 @@ export default function AdminDashboard() {
               <form onSubmit={handleGenerateCourtesyCode} className="space-y-5">
                 <fieldset className="space-y-2.5">
                   <legend className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                    1. Selecciona el Tier de la Cortesía (30 días)
+                    1. Selecciona el Tier de la Cortesía (7 días)
                   </legend>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
                     {[
@@ -1080,7 +1090,7 @@ export default function AdminDashboard() {
                     ) : (
                       <>
                         <Plus className="w-4 h-4 mr-1.5" />
-                        Generar Código (1 Mes)
+                        Generar Código (7 Días)
                       </>
                     )}
                   </Button>
@@ -1095,7 +1105,7 @@ export default function AdminDashboard() {
                   <div className="space-y-1">
                     <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400">
                       <CheckCircle2 className="w-4 h-4" />
-                      <span>¡Código de cortesía de 1 mes generado con éxito!</span>
+                      <span>¡Código de cortesía de 7 días generado con éxito!</span>
                     </div>
                     <p className="text-xs text-slate-300">
                       Tier: <strong>{lastCreatedCode.planName}</strong> • Compártelo con el usuario para que lo canjee al registrarse o en la sección de Planes.
@@ -1145,7 +1155,7 @@ export default function AdminDashboard() {
                   <thead>
                     <tr className="border-b border-slate-800 text-xs font-semibold text-slate-400 uppercase tracking-wider">
                       <th className="py-3 px-4">Código</th>
-                      <th className="py-3 px-4">Tier (1 Mes)</th>
+                      <th className="py-3 px-4">Tier (7 Días)</th>
                       <th className="py-3 px-4">Estado</th>
                       <th className="py-3 px-4">Nota / Destinatario</th>
                       <th className="py-3 px-4">Canjeado Por</th>
@@ -1375,6 +1385,9 @@ export default function AdminDashboard() {
             </Card>
           </div>
         )}
+
+        {/* TAB 5: PROVEEDORES DE VISIÓN IA (CRUD + DRAG & DROP FAILOVER) */}
+        {activeTab === 'ai_vision' && <VisionProvidersManager getToken={getToken} />}
       </div>
     </main>
   )

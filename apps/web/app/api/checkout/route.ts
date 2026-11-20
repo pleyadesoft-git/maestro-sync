@@ -35,6 +35,18 @@ export async function POST(req: NextRequest) {
     }
     const planConfig = (PLANS_CONFIG as any)[planKey]
 
+    if (
+      planConfig.code === 'free' ||
+      !planConfig.interval ||
+      typeof planConfig.priceCents !== 'number' ||
+      planConfig.priceCents <= 0
+    ) {
+      return NextResponse.json(
+        { ok: false, error: 'El plan gratuito no requiere checkout en Stripe.' },
+        { status: 400 }
+      )
+    }
+
     const stripe = getStripeServerInstance()
 
     // 1. Obtener o crear cliente en Stripe
@@ -58,40 +70,28 @@ export async function POST(req: NextRequest) {
       customerId = customer.id
     }
 
-    // 2. Si es plan organizacional (Banda u Orquesta), crear o resolver la organización
-    let organizationId: string | null = null
+    // 2. Preparar metadatos de ensamble para crear la organización solo al completarse el pago en el webhook
+    const orgName = planConfig.ensembleType
+      ? (ensembleName || '').trim() || (planConfig.ensembleType === 'band' ? 'Mi Banda' : 'Mi Orquesta')
+      : ''
+
+    const checkoutMetadata: Record<string, string> = {
+      user_id: user.id,
+      plan_code: planConfig.code,
+    }
     if (planConfig.ensembleType) {
-      const orgName = (ensembleName || '').trim() || (planConfig.ensembleType === 'band' ? 'Mi Banda' : 'Mi Orquesta')
-      const inviteCode = Math.random().toString(36).substring(2, 8).toUpperCase()
-
-      const { data: org, error: orgErr } = await supabase
-        .from('organizations')
-        .insert({
-          owner_user_id: user.id,
-          name: orgName,
-          ensemble_type: planConfig.ensembleType,
-          max_members: planConfig.maxMembers,
-          invite_code: inviteCode,
-        })
-        .select('id')
-        .single()
-
-      if (orgErr || !org) {
-        throw new Error(orgErr?.message || 'No se pudo crear el ensamble.')
+      checkoutMetadata.ensemble_type = planConfig.ensembleType
+      checkoutMetadata.ensemble_name = orgName
+      if (planConfig.maxMembers != null) {
+        checkoutMetadata.max_members = String(planConfig.maxMembers)
       }
-      organizationId = org.id
-
-      // Registrar al creador como director
-      await supabase.from('organization_members').insert({
-        organization_id: org.id,
-        user_id: user.id,
-        role: 'director',
-      })
     }
 
     const origin = getPublicOrigin(req, 3002)
+    const cookieLocale = req.cookies.get('NEXT_LOCALE')?.value
+    const locale = cookieLocale === 'en' ? 'en' : 'es'
 
-    // 3. Crear sesión de Stripe Checkout con precio dinámico
+    // 3. Crear sesión de Stripe Checkout con precio e intervalo estrictamente del planConfig
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       customer: customerId,
@@ -103,31 +103,27 @@ export async function POST(req: NextRequest) {
             product_data: {
               name: planConfig.name,
               description: planConfig.ensembleType
-                ? `Plan ${planConfig.name} para dirección de ensamble musical`
-                : 'Suscripción personal para músico solista',
+                ? locale === 'en'
+                  ? `${planConfig.name} plan for musical ensemble direction`
+                  : `Plan ${planConfig.name} para dirección de ensamble musical`
+                : locale === 'en'
+                  ? 'Personal subscription for solo musician'
+                  : 'Suscripción personal para músico solista',
             },
             unit_amount: planConfig.priceCents,
             recurring: {
-              interval: interval === 'year' ? 'year' : 'month',
+              interval: planConfig.interval === 'year' ? 'year' : 'month',
             },
           },
           quantity: 1,
         },
       ],
       subscription_data: {
-        metadata: {
-          user_id: user.id,
-          plan_code: planConfig.code,
-          organization_id: organizationId,
-        },
+        metadata: checkoutMetadata,
       },
-      metadata: {
-        user_id: user.id,
-        plan_code: planConfig.code,
-        organization_id: organizationId,
-      },
-      success_url: `${origin}/es/library?success=subscription_created`,
-      cancel_url: `${origin}/es/pricing?cancelled=true`,
+      metadata: checkoutMetadata,
+      success_url: `${origin}/${locale}/library?success=subscription_created`,
+      cancel_url: `${origin}/${locale}/pricing?cancelled=true`,
     })
 
     return NextResponse.json({ ok: true, url: session.url })

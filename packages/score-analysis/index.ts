@@ -1,12 +1,12 @@
-export * from './types'
-export * from './musicxml'
-export * from './staffDetector'
-export * from './metadataDetector'
+export type * from './types.ts'
+export * from './musicxml.ts'
+export * from './staffDetector.ts'
+export * from './metadataDetector.ts'
 
-import type { ScoreAnalysisResult, DetectedPart, DetectedPage } from './types'
-import { parseMusicXml } from './musicxml'
-import { analyzePageImage, type PixelBuffer } from './staffDetector'
-import { detectMetadataFromText, type ExtractedTextItem } from './metadataDetector'
+import type { ScoreAnalysisResult, DetectedPart, DetectedPage } from './types.ts'
+import { parseMusicXml } from './musicxml.ts'
+import { analyzePageImage, type PixelBuffer } from './staffDetector.ts'
+import { detectMetadataFromText, type ExtractedTextItem } from './metadataDetector.ts'
 
 export interface AnalyzeScoreInput {
   fileType: 'pdf' | 'image' | 'musicxml'

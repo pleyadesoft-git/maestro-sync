@@ -38,6 +38,74 @@ export type Database = {
         }
         Relationships: []
       }
+      ai_vision_providers: {
+        Row: {
+          api_key: string
+          base_url: string | null
+          created_at: string
+          created_by: string | null
+          failure_count: number
+          id: string
+          is_enabled: boolean
+          last_error: string | null
+          last_status: string
+          last_tested_at: string | null
+          model_name: string
+          name: string
+          notes: string | null
+          priority: number
+          provider_type: string
+          success_count: number
+          updated_at: string
+        }
+        Insert: {
+          api_key: string
+          base_url?: string | null
+          created_at?: string
+          created_by?: string | null
+          failure_count?: number
+          id?: string
+          is_enabled?: boolean
+          last_error?: string | null
+          last_status?: string
+          last_tested_at?: string | null
+          model_name: string
+          name: string
+          notes?: string | null
+          priority?: number
+          provider_type: string
+          success_count?: number
+          updated_at?: string
+        }
+        Update: {
+          api_key?: string
+          base_url?: string | null
+          created_at?: string
+          created_by?: string | null
+          failure_count?: number
+          id?: string
+          is_enabled?: boolean
+          last_error?: string | null
+          last_status?: string
+          last_tested_at?: string | null
+          model_name?: string
+          name?: string
+          notes?: string | null
+          priority?: number
+          provider_type?: string
+          success_count?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_vision_providers_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       courtesy_codes: {
         Row: {
           code: string

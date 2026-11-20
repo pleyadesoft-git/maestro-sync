@@ -243,13 +243,13 @@ export type CourtesyCodeRecord = {
 export function getCourtesyPlanLabel(planCode: string): string {
   switch (planCode) {
     case 'solo_monthly':
-      return 'Solo (Cortesía 1 Mes)'
+      return 'Solo (Cortesía 7 Días)'
     case 'band_monthly':
-      return 'Band (Cortesía 1 Mes)'
+      return 'Band (Cortesía 7 Días)'
     case 'orchestra_monthly':
-      return 'Orchestra (Cortesía 1 Mes)'
+      return 'Orchestra (Cortesía 7 Días)'
     default:
-      return 'Cortesía 1 Mes'
+      return 'Cortesía 7 Días'
   }
 }
 
@@ -285,7 +285,7 @@ export async function createCourtesyCode(params: {
   durationDays?: number
 }): Promise<CourtesyCodeRecord> {
   const admin = createServiceRoleClient()
-  const durationDays = params.durationDays ?? 30
+  const durationDays = params.durationDays ?? 7
   const cleanNote = params.note?.trim() || null
   const code = generateRandomCodeString(params.planCode)
   const nowIso = new Date().toISOString()
@@ -407,7 +407,7 @@ export async function listCourtesyCodes(): Promise<CourtesyCodeRecord[]> {
         code: String(p.code || ''),
         planCode,
         planName: getCourtesyPlanLabel(planCode),
-        durationDays: Number(p.duration_days || 30),
+        durationDays: Number(p.duration_days || 7),
         status: (p.status || 'active') as CourtesyCodeRecord['status'],
         note: p.note ?? null,
         createdBy: p.created_by ?? null,
@@ -600,13 +600,13 @@ export async function redeemCourtesyCode(params: {
     planRow = insertedPlan
   }
 
-  // 3. Calcular fin del mes de cortesía (30 días)
+  // 3. Calcular fin del período de cortesía (7 días)
   const now = new Date()
   const periodEnd = new Date(
-    now.getTime() + (record.durationDays || 30) * 24 * 60 * 60 * 1000
+    now.getTime() + (record.durationDays || 7) * 24 * 60 * 60 * 1000
   ).toISOString()
 
-  // 4. Registrar suscripción activa por 1 mes para el usuario
+  // 4. Registrar suscripción activa por 7 días para el usuario
   const stripeSubId = `courtesy_${record.code}`
   const { error: subErr } = await admin.from('subscriptions').upsert(
     {
@@ -714,4 +714,8 @@ export async function redeemCourtesyCode(params: {
     periodEnd,
   }
 }
+
+export * from './vision-providers'
+export * from './score-enrichment'
+
 

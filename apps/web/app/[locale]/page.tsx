@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { useTranslations } from 'next-intl'
 import { Button, Card, CardHeader, CardTitle, CardDescription, Input } from '@music-flow/ui'
 import { createBrowserClient, getAdminPublicUrl } from '@music-flow/supabase'
 import {
@@ -22,9 +23,12 @@ import {
 } from 'lucide-react'
 import { createRoomForVersion, fetchAnyOwnedVersion } from '../../lib/rooms'
 import PWAInstallButton from '../components/PWAInstallButton'
+import LanguageSwitcher from '../components/LanguageSwitcher'
 
 export default function HomePage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = React.use(params)
+  const t = useTranslations('home')
+  const tCommon = useTranslations('common')
   const router = useRouter()
   const supabase = createBrowserClient()
   const [roomCode, setRoomCode] = useState('')
@@ -69,11 +73,11 @@ export default function HomePage({ params }: { params: Promise<{ locale: string 
     e.preventDefault()
     const trimmed = roomCode.trim()
     if (!trimmed) {
-      setRoomError('Por favor introduce el código de la sala')
+      setRoomError(t('roomCodeRequired'))
       return
     }
     if (!/^[A-Za-z0-9-]{4,10}$/.test(trimmed)) {
-      setRoomError('El código solo puede contener letras, números y guiones (ej. MZ7K-2Q)')
+      setRoomError(t('roomCodeInvalid'))
       return
     }
 
@@ -100,7 +104,7 @@ export default function HomePage({ params }: { params: Promise<{ locale: string 
 
       const owned = await fetchAnyOwnedVersion(supabase)
       if (!owned) {
-        setCreateError('Aún no tienes partituras. Sube tu primera obra para poder iniciar una sala.')
+        setCreateError(t('noScoresError'))
         return
       }
       const result = await createRoomForVersion(supabase, owned.versionId, owned.tempo)
@@ -114,7 +118,7 @@ export default function HomePage({ params }: { params: Promise<{ locale: string 
       }
       router.push(`/${locale}/session/${result.roomCode}`)
     } catch (e: any) {
-      setCreateError(e?.message || 'No se pudo crear la sala.')
+      setCreateError(e?.message || t('createRoomError'))
     } finally {
       setCreating(false)
     }
@@ -143,10 +147,11 @@ export default function HomePage({ params }: { params: Promise<{ locale: string 
       {/* Header Badges & Install Action */}
       <div className="flex flex-wrap items-center justify-center gap-3 mb-8">
         <div className="flex items-center gap-2 px-4 py-2 rounded-full border border-amber-500/30 bg-amber-500/10 text-amber-400 text-xs font-semibold tracking-wider uppercase shadow-sm shadow-amber-500/20">
-          <Sparkles className="w-3.5 h-3.5" />
-          <span>Lectura Sincronizada PWA</span>
+          <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
+          <span>{t('badge')}</span>
         </div>
         <PWAInstallButton />
+        <LanguageSwitcher />
         {!authChecking && currentUserEmail && (
           <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-900 border border-slate-800 text-xs text-slate-300">
             <span className="w-2 h-2 rounded-full bg-emerald-400" />
@@ -155,9 +160,10 @@ export default function HomePage({ params }: { params: Promise<{ locale: string 
               type="button"
               onClick={handleSignOut}
               className="ml-1 text-slate-400 hover:text-amber-400 transition-colors inline-flex items-center gap-1"
-              title="Cerrar sesión"
+              title={t('signOutTitle')}
+              aria-label={t('signOutTitle')}
             >
-              <LogOut className="w-3.5 h-3.5" />
+              <LogOut className="w-3.5 h-3.5" aria-hidden="true" />
             </button>
           </div>
         )}
@@ -169,7 +175,7 @@ export default function HomePage({ params }: { params: Promise<{ locale: string 
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="/icons/icon-192x192.png"
-            alt="MaestroSync Logo"
+            alt={tCommon('logoAlt')}
             className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl border border-amber-500/30 shadow-xl shadow-amber-950/40"
           />
           <h1 className="text-4xl sm:text-6xl font-extrabold text-slate-100 tracking-tight leading-tight">
@@ -177,15 +183,15 @@ export default function HomePage({ params }: { params: Promise<{ locale: string 
           </h1>
         </div>
         <p className="text-lg sm:text-xl text-slate-400 max-w-xl mx-auto leading-relaxed">
-          Lectura digital de partituras para orquestas. El Director controla el avance en tiempo real y resalta el pentagrama de cada músico en su atril.
+          {t('heroDesc')}
         </p>
         {!authChecking && !currentUserEmail && (
           <div className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900/90 border border-amber-500/30 text-xs text-slate-300">
             <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
             <span>
-              Para unirte a una sala, iniciar como director o ver tu biblioteca debes{' '}
+              {t('authPromptPrefix')}{' '}
               <Link href={`/${locale}/login`} className="text-amber-400 font-semibold underline hover:text-amber-300">
-                iniciar sesión o registrarte
+                {t('authPromptLink')}
               </Link>
               .
             </span>
@@ -201,14 +207,14 @@ export default function HomePage({ params }: { params: Promise<{ locale: string 
             <div className="w-12 h-12 rounded-xl bg-amber-500/20 flex items-center justify-center text-amber-400 mb-2">
               <Play className="w-6 h-6 ml-0.5" />
             </div>
-            <CardTitle>Unirme a una Sala</CardTitle>
-            <CardDescription>Ingresa como Ejecutante con el código proporcionado por tu Director.</CardDescription>
+            <CardTitle>{t('joinTitle')}</CardTitle>
+            <CardDescription>{t('joinDesc')}</CardDescription>
           </CardHeader>
           <form noValidate onSubmit={handleJoinRoom} className="space-y-4">
             <Input
               required
               minLength={4}
-              placeholder="Código de sala (ej. MZ7K-2Q)"
+              placeholder={t('roomCodePlaceholder')}
               value={roomCode}
               errorMessage={roomError || undefined}
               onChange={(e) => {
@@ -218,7 +224,7 @@ export default function HomePage({ params }: { params: Promise<{ locale: string 
               className="h-12 uppercase tracking-widest font-mono text-center text-lg font-bold"
             />
             <Button type="submit" variant="primary" className="w-full">
-              {!authChecking && !currentUserEmail ? 'Iniciar sesión y Unirme a la Sala' : 'Ingresar a la Sala'}
+              {!authChecking && !currentUserEmail ? t('loginAndJoin') : t('enterRoom')}
             </Button>
           </form>
         </Card>
@@ -229,20 +235,20 @@ export default function HomePage({ params }: { params: Promise<{ locale: string 
             <div className="w-12 h-12 rounded-xl bg-slate-800 flex items-center justify-center text-slate-300 mb-2">
               <PlusCircle className="w-6 h-6" />
             </div>
-            <CardTitle>Iniciar como Director</CardTitle>
-            <CardDescription>Crea una nueva sala efímera y controla la reproducción y el tempo en tiempo real.</CardDescription>
+            <CardTitle>{t('directorTitle')}</CardTitle>
+            <CardDescription>{t('directorDesc')}</CardDescription>
           </CardHeader>
           <div className="space-y-3">
             <Button onClick={() => void handleCreateQuickRoom()} variant="secondary" className="w-full" disabled={creating}>
               {creating ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Creando sala…
+                  {t('creatingRoom')}
                 </>
               ) : !authChecking && !currentUserEmail ? (
-                'Iniciar sesión para Dirigir'
+                t('loginToDirect')
               ) : (
-                'Crear Sala Inmediata'
+                t('createQuickRoom')
               )}
             </Button>
             {createError && (
@@ -258,7 +264,7 @@ export default function HomePage({ params }: { params: Promise<{ locale: string 
               onClick={() => void handleGoToLibrary()}
             >
               <BookOpen className="w-4 h-4 mr-2" />
-              Elegir de mi Biblioteca
+              {t('chooseFromLibrary')}
             </Button>
           </div>
         </Card>
@@ -268,7 +274,7 @@ export default function HomePage({ params }: { params: Promise<{ locale: string 
       <footer className="mt-16 flex flex-wrap items-center justify-center gap-6 text-sm text-slate-500">
         <Link href={`/${locale}/login`} className="flex items-center gap-1.5 hover:text-amber-400 transition-colors">
           <LogIn className="w-4 h-4" />
-          <span>{currentUserEmail ? 'Cambiar cuenta' : 'Iniciar sesión / Registrarse'}</span>
+          <span>{currentUserEmail ? t('switchAccount') : t('loginOrRegister')}</span>
         </Link>
         <span>•</span>
         <button
@@ -277,22 +283,22 @@ export default function HomePage({ params }: { params: Promise<{ locale: string 
           className="flex items-center gap-1.5 hover:text-amber-400 transition-colors cursor-pointer"
         >
           <Music className="w-4 h-4" />
-          <span>Mi Biblioteca</span>
+          <span>{t('myLibrary')}</span>
         </button>
         <span>•</span>
         <Link href={`/${locale}/pricing`} className="flex items-center gap-1.5 hover:text-amber-400 transition-colors">
           <CreditCard className="w-4 h-4" />
-          <span>Planes y Cortesías</span>
+          <span>{t('plansAndCourtesy')}</span>
         </Link>
         <span>•</span>
         <a href={adminUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 hover:text-amber-400 transition-colors">
           <Shield className="w-4 h-4" />
-          <span>Panel Admin</span>
+          <span>{t('adminPanel')}</span>
         </a>
         <span>•</span>
         <Link href={`/${locale}/legal`} className="flex items-center gap-1.5 hover:text-amber-400 transition-colors">
           <Scale className="w-4 h-4" />
-          <span>Aviso Legal</span>
+          <span>{t('legalNotice')}</span>
         </Link>
       </footer>
     </main>

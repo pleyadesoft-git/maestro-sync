@@ -8,11 +8,28 @@ import {
   createCourtesyCode,
   listCourtesyCodes,
   revokeCourtesyCode,
+  listVisionProviders,
+  createVisionProvider,
+  updateVisionProvider,
+  deleteVisionProvider,
+  reorderVisionProviders,
+  testVisionProviderConnection,
   type CourtesyCodeRecord,
   type CourtesyPlanCode,
+  type VisionProviderRecord,
+  type VisionProviderType,
+  type CreateVisionProviderInput,
+  type UpdateVisionProviderInput,
 } from '@music-flow/supabase/server'
 
-export type { CourtesyCodeRecord, CourtesyPlanCode }
+export type {
+  CourtesyCodeRecord,
+  CourtesyPlanCode,
+  VisionProviderRecord,
+  VisionProviderType,
+  CreateVisionProviderInput,
+  UpdateVisionProviderInput,
+}
 
 export type DashboardUser = {
   id: string
@@ -370,7 +387,7 @@ export async function getAdminOverview(accessToken: string): Promise<AdminOvervi
     if (sub && sub.plans) {
       planCode = sub.plans.code
       const baseFriendlyName = formatPlanFriendlyName(sub.plans.code, sub.plans.name)
-      planName = isCourtesy ? `${baseFriendlyName.split(' (')[0]} (Cortesía 1 Mes)` : baseFriendlyName
+      planName = isCourtesy ? `${baseFriendlyName.split(' (')[0]} (Cortesía 7 Días)` : baseFriendlyName
       paymentStatus = sub.status
       if (sub.current_period_end && Date.parse(sub.current_period_end) < nowMs && sub.status === 'active' && isCourtesy) {
         paymentStatus = 'expired'
@@ -499,7 +516,7 @@ export async function generateCourtesyCodeAction(
     planCode,
     note,
     createdBy: adminId,
-    durationDays: 30,
+    durationDays: 7,
   })
 }
 
@@ -537,4 +554,71 @@ export async function signOutAdmin(accessToken: string): Promise<void> {
   const client = createAuthedClient(accessToken)
   await client.auth.signOut()
 }
+
+// =====================================================================
+// PROVEEDORES DE VISIÓN IA (CRUD + Drag & Drop Prioridad + Test)
+// =====================================================================
+
+export async function listVisionProvidersAction(accessToken: string): Promise<{
+  providers: VisionProviderRecord[]
+  tableMissing: boolean
+}> {
+  await requireAdmin(accessToken)
+  return await listVisionProviders()
+}
+
+export async function createVisionProviderAction(
+  accessToken: string,
+  input: Omit<CreateVisionProviderInput, 'createdBy'>
+): Promise<VisionProviderRecord> {
+  const { adminId } = await requireAdmin(accessToken)
+  if (!input.name?.trim()) throw new Error('El nombre del proveedor es obligatorio.')
+  if (!input.modelName?.trim()) throw new Error('El nombre del modelo es obligatorio.')
+  if (!input.apiKey?.trim()) throw new Error('La API Key es obligatoria.')
+  return await createVisionProvider({
+    ...input,
+    createdBy: adminId,
+  })
+}
+
+export async function updateVisionProviderAction(
+  accessToken: string,
+  id: string,
+  updates: UpdateVisionProviderInput
+): Promise<VisionProviderRecord> {
+  await requireAdmin(accessToken)
+  if (!id) throw new Error('ID de proveedor inválido.')
+  return await updateVisionProvider(id, updates)
+}
+
+export async function deleteVisionProviderAction(
+  accessToken: string,
+  id: string
+): Promise<void> {
+  await requireAdmin(accessToken)
+  if (!id) throw new Error('ID de proveedor inválido.')
+  await deleteVisionProvider(id)
+}
+
+export async function reorderVisionProvidersAction(
+  accessToken: string,
+  orderedIds: string[]
+): Promise<VisionProviderRecord[]> {
+  await requireAdmin(accessToken)
+  return await reorderVisionProviders(orderedIds)
+}
+
+export async function testVisionProviderAction(
+  accessToken: string,
+  id: string
+): Promise<{
+  ok: boolean
+  latencyMs: number
+  message: string
+  provider?: VisionProviderRecord
+}> {
+  await requireAdmin(accessToken)
+  return await testVisionProviderConnection(id)
+}
+
 

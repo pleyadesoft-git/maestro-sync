@@ -11,45 +11,78 @@ export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> 
   containerClassName?: string
 }
 
+function detectActiveLocale(explicitLocale?: string): 'es' | 'en' {
+  const raw =
+    explicitLocale ||
+    (typeof document !== 'undefined' ? document.documentElement.lang : '') ||
+    'es'
+  return raw.toLowerCase().startsWith('en') ? 'en' : 'es'
+}
+
 function getFriendlyValidationMessage(
   validity: ValidityState,
   input: HTMLInputElement,
-  label?: string
+  label?: string,
+  explicitLocale?: string
 ): string {
-  const fieldName = label?.trim() || 'Este campo'
+  const lang = detectActiveLocale(explicitLocale)
+  const isEn = lang === 'en'
+  const fieldName = label?.trim() || (isEn ? 'This field' : 'Este campo')
 
   if (validity.valueMissing) {
-    if (input.type === 'email') return 'El correo electrónico es requerido.'
-    if (input.type === 'password') return 'La contraseña es requerida.'
-    return `${fieldName} es requerido.`
+    if (input.type === 'email') {
+      return isEn ? 'Email address is required.' : 'El correo electrónico es requerido.'
+    }
+    if (input.type === 'password') {
+      return isEn ? 'Password is required.' : 'La contraseña es requerida.'
+    }
+    return isEn ? `${fieldName} is required.` : `${fieldName} es requerido.`
   }
   if (validity.typeMismatch) {
-    if (input.type === 'email') return 'Ingresa un correo electrónico válido (ej. usuario@orquesta.com).'
-    if (input.type === 'url') return 'Ingresa una URL válida.'
-    return 'El formato ingresado no es válido.'
+    if (input.type === 'email') {
+      return isEn
+        ? 'Enter a valid email address (e.g. musician@orchestra.com).'
+        : 'Ingresa un correo electrónico válido (ej. usuario@orquesta.com).'
+    }
+    if (input.type === 'url') {
+      return isEn ? 'Enter a valid URL.' : 'Ingresa una URL válida.'
+    }
+    return isEn ? 'The entered format is not valid.' : 'El formato ingresado no es válido.'
   }
   if (validity.tooShort) {
-    return `${fieldName} debe tener al menos ${input.minLength} caracteres.`
+    return isEn
+      ? `${fieldName} must be at least ${input.minLength} characters.`
+      : `${fieldName} debe tener al menos ${input.minLength} caracteres.`
   }
   if (validity.tooLong) {
-    return `${fieldName} no puede exceder los ${input.maxLength} caracteres.`
+    return isEn
+      ? `${fieldName} cannot exceed ${input.maxLength} characters.`
+      : `${fieldName} no puede exceder los ${input.maxLength} caracteres.`
   }
   if (validity.rangeUnderflow) {
-    return `El valor mínimo permitido es ${input.min}.`
+    return isEn
+      ? `The minimum allowed value is ${input.min}.`
+      : `El valor mínimo permitido es ${input.min}.`
   }
   if (validity.rangeOverflow) {
-    return `El valor máximo permitido es ${input.max}.`
+    return isEn
+      ? `The maximum allowed value is ${input.max}.`
+      : `El valor máximo permitido es ${input.max}.`
   }
   if (validity.patternMismatch) {
-    return 'El formato no coincide con el patrón requerido.'
+    return isEn
+      ? 'The format does not match the required pattern.'
+      : 'El formato no coincide con el patrón requerido.'
   }
   if (validity.stepMismatch) {
-    return 'El valor no coincide con el incremento permitido.'
+    return isEn
+      ? 'The value does not match the allowed increment.'
+      : 'El valor no coincide con el incremento permitido.'
   }
   if (validity.badInput) {
-    return 'Por favor ingresa un valor válido.'
+    return isEn ? 'Please enter a valid value.' : 'Por favor ingresa un valor válido.'
   }
-  return input.validationMessage || 'Valor no válido.'
+  return input.validationMessage || (isEn ? 'Invalid value.' : 'Valor no válido.')
 }
 
 export const Input = React.forwardRef<HTMLInputElement, InputProps>(

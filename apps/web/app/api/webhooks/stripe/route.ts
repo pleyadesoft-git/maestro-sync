@@ -34,15 +34,79 @@ function customerIdOf(customer: string | Stripe.Customer | Stripe.DeletedCustome
 async function syncSubscription(
   supabase: ReturnType<typeof createServiceRoleClient>,
   subscription: Stripe.Subscription,
-  context: { userId?: string | null; organizationId?: string | null } = {}
+  context: {
+    userId?: string | null
+    organizationId?: string | null
+    ensembleType?: string | null
+    ensembleName?: string | null
+    maxMembers?: number | null
+  } = {}
 ) {
   const item = subscription.items?.data?.[0]
   const priceId: string | undefined = item?.price?.id
   const metadata = subscription.metadata ?? {}
-  const organizationId = context.organizationId ?? metadata.organization_id ?? null
-  const ownerUserId = organizationId
-    ? null
-    : context.userId ?? metadata.user_id ?? null
+  const resolvedUserId = context.userId ?? metadata.user_id ?? null
+
+  // Reutilizar organization_id si esta suscripción ya fue sincronizada anteriormente (idempotencia)
+  let organizationId: string | null =
+    (context.organizationId || metadata.organization_id || '').trim() || null
+
+  if (!organizationId) {
+    const { data: existingSub } = await supabase
+      .from('subscriptions')
+      .select('organization_id')
+      .eq('stripe_subscription_id', subscription.id)
+      .maybeSingle()
+    if (existingSub?.organization_id) {
+      organizationId = existingSub.organization_id
+    }
+  }
+
+  // Provisionar la organización únicamente cuando el pago/suscripción está activo o en prueba
+  const ensembleType = context.ensembleType || metadata.ensemble_type || null
+  const normalizedStatus = normalizeSubscriptionStatus(subscription.status)
+  if (
+    !organizationId &&
+    ensembleType &&
+    resolvedUserId &&
+    (normalizedStatus === 'active' || normalizedStatus === 'trialing')
+  ) {
+    const orgName =
+      (context.ensembleName || metadata.ensemble_name || '').trim() ||
+      (ensembleType === 'band' ? 'Mi Banda' : 'Mi Orquesta')
+    const parsedMaxMembers =
+      context.maxMembers !== undefined
+        ? context.maxMembers
+        : metadata.max_members
+          ? Number.parseInt(metadata.max_members, 10)
+          : null
+    const inviteCode = Math.random().toString(36).substring(2, 8).toUpperCase()
+
+    const { data: org, error: orgErr } = await (supabase as any)
+      .from('organizations')
+      .insert({
+        owner_user_id: resolvedUserId,
+        name: orgName,
+        ensemble_type: ensembleType,
+        max_members: Number.isFinite(parsedMaxMembers) ? parsedMaxMembers : null,
+        invite_code: inviteCode,
+      })
+      .select('id')
+      .single()
+
+    if (orgErr || !org) {
+      throw new Error(orgErr?.message || 'No se pudo crear el ensamble tras completar el pago.')
+    }
+    organizationId = org.id
+
+    await (supabase as any).from('organization_members').insert({
+      organization_id: org.id,
+      user_id: resolvedUserId,
+      role: 'director',
+    })
+  }
+
+  const ownerUserId = organizationId ? null : resolvedUserId
 
   // 1) Resolver el plan local a partir del Price de Stripe
   let planId: string | null = null
@@ -99,7 +163,7 @@ async function syncSubscription(
     organization_id: organizationId,
     stripe_customer_id: customerIdOf(subscription.customer),
     stripe_subscription_id: subscription.id,
-    status: normalizeSubscriptionStatus(subscription.status),
+    status: normalizedStatus,
     current_period_end: periodEndSeconds
       ? new Date(periodEndSeconds * 1000).toISOString()
       : null,
@@ -157,9 +221,13 @@ export async function POST(req: Request) {
           const subscription = await stripe.subscriptions.retrieve(subscriptionId)
           const userId =
             session.client_reference_id ?? session.metadata?.user_id ?? null
+          const maxMembersRaw = session.metadata?.max_members
           const persisted = await syncSubscription(supabase, subscription, {
             userId,
             organizationId: session.metadata?.organization_id ?? null,
+            ensembleType: session.metadata?.ensemble_type ?? null,
+            ensembleName: session.metadata?.ensemble_name ?? null,
+            maxMembers: maxMembersRaw ? Number.parseInt(maxMembersRaw, 10) : undefined,
           })
           if (persisted) {
             await notifyAdmin(supabase, 'new_subscription', {

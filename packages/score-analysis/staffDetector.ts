@@ -1,4 +1,4 @@
-import type { DetectedSystem, DetectedStaff, DetectedMeasure } from './types'
+import type { DetectedSystem, DetectedStaff, DetectedMeasure } from './types.ts'
 
 export interface PixelBuffer {
   width: number

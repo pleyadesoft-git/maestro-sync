@@ -39,14 +39,24 @@ export async function isPlatformAuthenticatorAvailable(): Promise<boolean> {
 /**
  * Registro de nueva cuenta o vinculación de Passkey / Biometría.
  */
+function isEnglishLocale(): boolean {
+  return (
+    typeof document !== 'undefined' &&
+    document.documentElement.lang.toLowerCase().startsWith('en')
+  )
+}
+
 export async function performWebAuthnRegister(params: {
   email: string
   fullName?: string
 }): Promise<WebAuthnAuthResult> {
+  const isEn = isEnglishLocale()
   if (!isWebAuthnSupported()) {
     return {
       ok: false,
-      error: 'Tu navegador no soporta Passkeys o WebAuthn.',
+      error: isEn
+        ? 'Your browser does not support Passkeys or WebAuthn.'
+        : 'Tu navegador no soporta Passkeys o WebAuthn.',
     }
   }
 
@@ -67,18 +77,39 @@ export async function performWebAuthnRegister(params: {
     if (!resOptions.ok || !dataOptions.ok) {
       return {
         ok: false,
-        error: dataOptions.error || 'No se pudieron generar las opciones de Passkey.',
+        error:
+          dataOptions.error ||
+          (isEn
+            ? 'Could not generate Passkey options.'
+            : 'No se pudieron generar las opciones de Passkey.'),
       }
     }
 
     // 2. Invocar la ceremonia nativa del navegador (Touch ID / Face ID)
     let registrationResponse: any
+    const ceremonyStartedAt = Date.now()
     try {
       registrationResponse = await startRegistration({
         optionsJSON: dataOptions.options,
       })
     } catch (err: any) {
       const msg = err?.message?.toLowerCase() || ''
+      const elapsedMs = Date.now() - ceremonyStartedAt
+      const isExplicitTimeout =
+        err?.name === 'TimeoutError' ||
+        ((msg.includes('timeout') || msg.includes('timed out')) &&
+          !msg.includes('either timed out or was not allowed'))
+      const isProlongedNotAllowed =
+        err?.name === 'NotAllowedError' && elapsedMs >= 25000
+
+      if (isExplicitTimeout || isProlongedNotAllowed) {
+        return {
+          ok: false,
+          error: isEn
+            ? 'Timed out. If using a QR code with your phone, make sure Bluetooth is enabled on both devices and keep them close.'
+            : 'Tiempo de espera agotado. Si usas el código QR con tu móvil, verifica que Bluetooth esté activado (y con permiso para tu navegador en macOS) y mantén ambos dispositivos cerca.',
+        }
+      }
       if (
         err?.name === 'NotAllowedError' ||
         err?.name === 'AbortError' ||
@@ -86,16 +117,13 @@ export async function performWebAuthnRegister(params: {
       ) {
         return { ok: false, cancelled: true }
       }
-      if (err?.name === 'TimeoutError' || msg.includes('timeout') || msg.includes('timed out')) {
-        return {
-          ok: false,
-          error:
-            'Tiempo de espera agotado. Si usas el código QR con tu móvil, asegúrate de tener Bluetooth activado en ambos dispositivos y mantenerlos cerca.',
-        }
-      }
       return {
         ok: false,
-        error: err?.message || 'Error durante la verificación biométrica del dispositivo.',
+        error:
+          err?.message ||
+          (isEn
+            ? 'Error during device biometric verification.'
+            : 'Error durante la verificación biométrica del dispositivo.'),
       }
     }
 
@@ -114,7 +142,11 @@ export async function performWebAuthnRegister(params: {
     if (!resVerify.ok || !dataVerify.ok) {
       return {
         ok: false,
-        error: dataVerify.error || 'Falló la verificación del registro de Passkey.',
+        error:
+          dataVerify.error ||
+          (isEn
+            ? 'Passkey registration verification failed.'
+            : 'Falló la verificación del registro de Passkey.'),
       }
     }
 
@@ -128,7 +160,11 @@ export async function performWebAuthnRegister(params: {
     if (otpError) {
       return {
         ok: false,
-        error: 'Passkey registrada, pero falló el inicio de sesión: ' + otpError.message,
+        error:
+          (isEn
+            ? 'Passkey registered, but sign-in failed: '
+            : 'Passkey registrada, pero falló el inicio de sesión: ') +
+          otpError.message,
       }
     }
 
@@ -139,7 +175,11 @@ export async function performWebAuthnRegister(params: {
   } catch (err: any) {
     return {
       ok: false,
-      error: err?.message || 'Error inesperado durante el registro con Passkey.',
+      error:
+        err?.message ||
+        (isEn
+          ? 'Unexpected error during Passkey registration.'
+          : 'Error inesperado durante el registro con Passkey.'),
     }
   }
 }
@@ -150,10 +190,13 @@ export async function performWebAuthnRegister(params: {
 export async function performWebAuthnLogin(params?: {
   email?: string
 }): Promise<WebAuthnAuthResult> {
+  const isEn = isEnglishLocale()
   if (!isWebAuthnSupported()) {
     return {
       ok: false,
-      error: 'Tu navegador no soporta Passkeys o WebAuthn.',
+      error: isEn
+        ? 'Your browser does not support Passkeys or WebAuthn.'
+        : 'Tu navegador no soporta Passkeys o WebAuthn.',
     }
   }
 
@@ -173,18 +216,39 @@ export async function performWebAuthnLogin(params?: {
     if (!resOptions.ok || !dataOptions.ok) {
       return {
         ok: false,
-        error: dataOptions.error || 'No se pudieron obtener las opciones de inicio con Passkey.',
+        error:
+          dataOptions.error ||
+          (isEn
+            ? 'Could not fetch Passkey sign-in options.'
+            : 'No se pudieron obtener las opciones de inicio con Passkey.'),
       }
     }
 
     // 2. Invocar Touch ID / Face ID / Selector de Passkeys
     let authenticationResponse: any
+    const ceremonyStartedAt = Date.now()
     try {
       authenticationResponse = await startAuthentication({
         optionsJSON: dataOptions.options,
       })
     } catch (err: any) {
       const msg = err?.message?.toLowerCase() || ''
+      const elapsedMs = Date.now() - ceremonyStartedAt
+      const isExplicitTimeout =
+        err?.name === 'TimeoutError' ||
+        ((msg.includes('timeout') || msg.includes('timed out')) &&
+          !msg.includes('either timed out or was not allowed'))
+      const isProlongedNotAllowed =
+        err?.name === 'NotAllowedError' && elapsedMs >= 25000
+
+      if (isExplicitTimeout || isProlongedNotAllowed) {
+        return {
+          ok: false,
+          error: isEn
+            ? 'Timed out. If using a QR code with your phone, make sure Bluetooth is enabled on both devices and keep them close.'
+            : 'Tiempo de espera agotado. Si usas el código QR con tu móvil, verifica que Bluetooth esté activado (y con permiso para tu navegador en macOS) y mantén ambos dispositivos cerca.',
+        }
+      }
       if (
         err?.name === 'NotAllowedError' ||
         err?.name === 'AbortError' ||
@@ -192,16 +256,13 @@ export async function performWebAuthnLogin(params?: {
       ) {
         return { ok: false, cancelled: true }
       }
-      if (err?.name === 'TimeoutError' || msg.includes('timeout') || msg.includes('timed out')) {
-        return {
-          ok: false,
-          error:
-            'Tiempo de espera agotado. Si usas el código QR con tu móvil, asegúrate de tener Bluetooth activado en ambos dispositivos y mantenerlos cerca.',
-        }
-      }
       return {
         ok: false,
-        error: err?.message || 'Biometría cancelada o no reconocida.',
+        error:
+          err?.message ||
+          (isEn
+            ? 'Biometrics cancelled or not recognized.'
+            : 'Biometría cancelada o no reconocida.'),
       }
     }
 
@@ -218,7 +279,11 @@ export async function performWebAuthnLogin(params?: {
     if (!resVerify.ok || !dataVerify.ok) {
       return {
         ok: false,
-        error: dataVerify.error || 'No se pudo autenticar la Passkey.',
+        error:
+          dataVerify.error ||
+          (isEn
+            ? 'Could not authenticate Passkey.'
+            : 'No se pudo autenticar la Passkey.'),
       }
     }
 
@@ -232,7 +297,10 @@ export async function performWebAuthnLogin(params?: {
     if (otpError) {
       return {
         ok: false,
-        error: 'Passkey confirmada pero falló la sesión: ' + otpError.message,
+        error:
+          (isEn
+            ? 'Passkey confirmed but session failed: '
+            : 'Passkey confirmada pero falló la sesión: ') + otpError.message,
       }
     }
 
@@ -243,7 +311,11 @@ export async function performWebAuthnLogin(params?: {
   } catch (err: any) {
     return {
       ok: false,
-      error: err?.message || 'Error inesperado al iniciar sesión con Passkey.',
+      error:
+        err?.message ||
+        (isEn
+          ? 'Unexpected error signing in with Passkey.'
+          : 'Error inesperado al iniciar sesión con Passkey.'),
     }
   }
 }

@@ -1,9 +1,9 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseMusicXml } from '../musicxml'
-import { detectStaffLines, analyzePageImage } from '../staffDetector'
-import { detectMetadataFromText } from '../metadataDetector'
-import { analyzeScore } from '../index'
+import { parseMusicXml } from '../musicxml.ts'
+import { detectStaffLines, analyzePageImage } from '../staffDetector.ts'
+import { detectMetadataFromText } from '../metadataDetector.ts'
+import { analyzeScore } from '../index.ts'
 
 describe('MusicXML Parser', () => {
   it('correctly parses title, composer, parts, key, time signature, and repeats', () => {

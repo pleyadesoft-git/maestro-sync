@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
       expectedChallenge: challengeData.challenge,
       expectedOrigin: expectedOrigins,
       expectedRPID: rpID,
-      requireUserVerification: true,
+      requireUserVerification: false,
     })
 
     if (!verification.verified || !verification.registrationInfo) {

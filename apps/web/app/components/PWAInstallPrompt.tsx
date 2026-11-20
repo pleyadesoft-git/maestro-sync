@@ -205,7 +205,7 @@ export default function PWAInstallPrompt() {
 
             {installSuccess ? (
               <p className="mt-1.5 text-xs text-emerald-400 font-medium">
-                ¡Gracias por instalar MaestroSync! Ya puedes abrirla desde tu pantalla de inicio.
+                {t('installedDetail')}
               </p>
             ) : isIOS ? (
               <div className="mt-2 text-xs text-slate-300 space-y-2">
@@ -271,7 +271,7 @@ export default function PWAInstallPrompt() {
           <button
             type="button"
             onClick={handleDismiss}
-            aria-label="Cerrar aviso de instalación"
+            aria-label={t('closeInstallAria')}
             className="absolute top-3 right-3 rounded-lg p-1 text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors cursor-pointer"
           >
             <X className="h-4 w-4" />

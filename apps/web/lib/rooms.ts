@@ -46,14 +46,28 @@ export async function fetchAnyOwnedVersion(
  * Crea una sala real vía la RPC security definer `create_session` y devuelve
  * el room_code generado (ej. "MZ7K-2Q"). Nunca genera códigos en el cliente.
  */
+function isEnglishLocale(): boolean {
+  return (
+    typeof document !== 'undefined' &&
+    document.documentElement.lang.toLowerCase().startsWith('en')
+  )
+}
+
 export async function createRoomForVersion(
   supabase: BrowserClient,
   versionId: string,
   fallbackTempo?: number | null
 ): Promise<RoomCreateResult> {
+  const isEn = isEnglishLocale()
   const { data: authData } = await supabase.auth.getUser()
   if (!authData.user) {
-    return { ok: false, kind: 'auth', message: 'Inicia sesión para crear una sala de ensayo.' }
+    return {
+      ok: false,
+      kind: 'auth',
+      message: isEn
+        ? 'Sign in to create a rehearsal room.'
+        : 'Inicia sesión para crear una sala de ensayo.',
+    }
   }
 
   // 1) Intentar primero vía RPC nativa si está instalada en Postgres
@@ -75,7 +89,13 @@ export async function createRoomForVersion(
     const { data: sessionData } = await supabase.auth.getSession()
     const token = sessionData.session?.access_token
     if (!token) {
-      return { ok: false, kind: 'auth', message: 'Tu sesión expiró. Vuelve a iniciar sesión.' }
+      return {
+        ok: false,
+        kind: 'auth',
+        message: isEn
+          ? 'Your session expired. Please sign in again.'
+          : 'Tu sesión expiró. Vuelve a iniciar sesión.',
+      }
     }
 
     const res = await fetch('/api/sessions/create', {
@@ -92,12 +112,24 @@ export async function createRoomForVersion(
 
     const json = await res.json()
     if (!res.ok || !json.ok || !json.session?.room_code) {
-      return { ok: false, kind: 'error', message: json.error || 'No se pudo crear la sala.' }
+      return {
+        ok: false,
+        kind: 'error',
+        message:
+          json.error ||
+          (isEn ? 'Could not create the room.' : 'No se pudo crear la sala.'),
+      }
     }
 
     return { ok: true, roomCode: json.session.room_code }
   } catch (e: any) {
-    return { ok: false, kind: 'error', message: e?.message || 'No se pudo crear la sala.' }
+    return {
+      ok: false,
+      kind: 'error',
+      message:
+        e?.message ||
+        (isEn ? 'Could not create the room.' : 'No se pudo crear la sala.'),
+    }
   }
 }
 

@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
+import { useTranslations } from 'next-intl'
 import {
   MusicScoreSheet,
   type ScorePageData,
@@ -12,6 +13,7 @@ import {
 import { usePlaybackStore, useSessionStore } from '@music-flow/stores'
 import { createBrowserClient } from '@music-flow/supabase'
 import { renderPdfToDataUrl } from '@/lib/pdfRenderer'
+import LanguageSwitcher from '../../../components/LanguageSwitcher'
 import {
   Play,
   Pause,
@@ -61,40 +63,70 @@ type PlaybackAnchor = {
   tempo: number
 }
 
-// Catálogo sembrado en public.instruments → Etiqueta amigable de lectura
-const INSTRUMENT_CODE_TO_LABEL: Record<string, string> = {
-  violin_1: 'Violín I',
-  violin_2: 'Violín II',
-  viola: 'Viola',
-  cello: 'Violonchelo',
-  contrabass: 'Contrabajo',
-  flute: 'Flauta',
-  oboe: 'Oboe',
-  clarinet: 'Clarinete',
-  bassoon: 'Fagot',
-  horn: 'Corno',
-  trumpet: 'Trompeta',
-  trombone: 'Trombón',
-  tuba: 'Tuba',
-  percussion: 'Percusión',
-  piano: 'Piano',
-  soprano: 'Soprano',
-  alto: 'Contralto',
-  tenor: 'Tenor',
-  bass: 'Bajo',
+// Catálogo sembrado en public.instruments → Etiqueta amigable de lectura por idioma
+const INSTRUMENT_CODE_TO_LABEL_BY_LOCALE: Record<'es' | 'en', Record<string, string>> = {
+  es: {
+    violin_1: 'Violín I',
+    violin_2: 'Violín II',
+    viola: 'Viola',
+    cello: 'Violonchelo',
+    contrabass: 'Contrabajo',
+    flute: 'Flauta',
+    oboe: 'Oboe',
+    clarinet: 'Clarinete',
+    bassoon: 'Fagot',
+    horn: 'Corno',
+    trumpet: 'Trompeta',
+    trombone: 'Trombón',
+    tuba: 'Tuba',
+    percussion: 'Percusión',
+    piano: 'Piano',
+    soprano: 'Soprano',
+    alto: 'Contralto',
+    tenor: 'Tenor',
+    bass: 'Bajo',
+  },
+  en: {
+    violin_1: 'Violin I',
+    violin_2: 'Violin II',
+    viola: 'Viola',
+    cello: 'Cello',
+    contrabass: 'Double Bass',
+    flute: 'Flute',
+    oboe: 'Oboe',
+    clarinet: 'Clarinet',
+    bassoon: 'Bassoon',
+    horn: 'French Horn',
+    trumpet: 'Trumpet',
+    trombone: 'Trombone',
+    tuba: 'Tuba',
+    percussion: 'Percussion',
+    piano: 'Piano',
+    soprano: 'Soprano',
+    alto: 'Alto',
+    tenor: 'Tenor',
+    bass: 'Bass',
+  },
 }
 
-const FALLBACK_SYSTEMS: ScoreSystemData[] = [
-  { id: 's1', pageNumber: 1, measureStart: 1, measureCount: 4, bboxX: 0.04, bboxY: 0.14, bboxW: 0.94, bboxH: 0.17, instrument: 'Violín I' },
-  { id: 's2', pageNumber: 1, measureStart: 5, measureCount: 4, bboxX: 0.04, bboxY: 0.35, bboxW: 0.94, bboxH: 0.17, instrument: 'Violín II' },
-  { id: 's3', pageNumber: 1, measureStart: 9, measureCount: 4, bboxX: 0.04, bboxY: 0.56, bboxW: 0.94, bboxH: 0.17, instrument: 'Viola' },
-  { id: 's4', pageNumber: 1, measureStart: 13, measureCount: 4, bboxX: 0.04, bboxY: 0.77, bboxW: 0.94, bboxH: 0.17, instrument: 'Violonchelo' },
-]
+function getFallbackSystems(locale: string): ScoreSystemData[] {
+  const labels = INSTRUMENT_CODE_TO_LABEL_BY_LOCALE[locale === 'en' ? 'en' : 'es']
+  return [
+    { id: 's1', pageNumber: 1, measureStart: 1, measureCount: 4, bboxX: 0.04, bboxY: 0.14, bboxW: 0.94, bboxH: 0.17, instrument: labels.violin_1 },
+    { id: 's2', pageNumber: 1, measureStart: 5, measureCount: 4, bboxX: 0.04, bboxY: 0.35, bboxW: 0.94, bboxH: 0.17, instrument: labels.violin_2 },
+    { id: 's3', pageNumber: 1, measureStart: 9, measureCount: 4, bboxX: 0.04, bboxY: 0.56, bboxW: 0.94, bboxH: 0.17, instrument: labels.viola },
+    { id: 's4', pageNumber: 1, measureStart: 13, measureCount: 4, bboxX: 0.04, bboxY: 0.77, bboxW: 0.94, bboxH: 0.17, instrument: labels.cello },
+  ]
+}
 
 function SessionContent({ params }: { params?: Promise<{ locale: string; code: string }> }) {
   const routeParams = useParams<{ locale?: string; code?: string }>()
   const code = (routeParams?.code ?? '').toUpperCase()
   const locale = routeParams?.locale ?? 'es'
+  const t = useTranslations('sessionPage')
+  const tSheet = useTranslations('scoreSheet')
+  const INSTRUMENT_CODE_TO_LABEL = INSTRUMENT_CODE_TO_LABEL_BY_LOCALE[locale === 'en' ? 'en' : 'es']
+  const FALLBACK_SYSTEMS = useMemo(() => getFallbackSystems(locale), [locale])
 
   const supabase = createBrowserClient()
 
@@ -312,7 +344,12 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
           newInstrument,
         },
       })
-      setNotification(`Atril "${newInstrument}" asignado con éxito a ${targetUser.user === 'director' ? 'Director' : 'Músico'}.`)
+      setNotification(
+        t('standAssignedSuccess', {
+          instrument: newInstrument,
+          target: targetUser.user === 'director' ? t('roleDirector') : t('roleMusician'),
+        })
+      )
     } finally {
       setIsReassigning(false)
     }
@@ -349,7 +386,7 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
         if (!sessionRow) {
           const { data: sessionData } = await supabase.auth.getSession()
           const token = sessionData.session?.access_token
-          if (!token) throw new Error('Inicia sesión para entrar a la sala de ensayo.')
+          if (!token) throw new Error(t('authRequiredError'))
 
           const res = await fetch('/api/sessions/join', {
             method: 'POST',
@@ -361,7 +398,7 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
           })
           const json = await res.json()
           if (!res.ok || !json.ok || !json.session) {
-            throw new Error(json.error || `La sala «${code.toUpperCase()}» no existe o ya finalizó.`)
+            throw new Error(json.error || t('roomNotFound', { code: code.toUpperCase() }))
           }
           sessionRow = json.session
         }
@@ -411,7 +448,7 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
           id: sessionRow.id,
           workVersionId: sessionRow.work_version_id,
           directorUserId: sessionRow.director_user_id,
-          title: work?.title || 'Partitura',
+          title: work?.title || t('scoreFallbackTitle'),
           composer: work?.composer || '',
           subtitle: version?.version_name || '',
           keySignature: work?.key_signature || null,
@@ -597,7 +634,7 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
         setPhase('ready')
       } catch (e: any) {
         if (!cancelled) {
-          setLoadError(e?.message || 'Error inesperado al entrar a la sala.')
+          setLoadError(e?.message || t('unexpectedJoinError'))
           setPhase('error')
         }
       }
@@ -631,7 +668,7 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
       .on('broadcast', { event: 'stand_assignment' }, ({ payload }: any) => {
         if (payload?.targetUserId && payload.targetUserId === userId) {
           handleInstrumentChange(payload.newInstrument)
-          setNotification(`¡El director te asignó al atril: ${payload.newInstrument}!`)
+          setNotification(t('standAssignedByDirector', { instrument: payload.newInstrument }))
         }
       })
       .on('presence', { event: 'sync' }, () => {
@@ -842,7 +879,7 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
     return (
       <main className="h-dvh bg-slate-950 flex flex-col items-center justify-center gap-4 text-slate-300">
         <Loader2 className="w-8 h-8 text-amber-400 animate-spin" />
-        <p className="text-sm">Conectando a la sala {code.toUpperCase()}…</p>
+        <p className="text-sm">{t('connectingRoom', { code: code.toUpperCase() })}</p>
       </main>
     )
   }
@@ -854,7 +891,7 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
           <AlertTriangle className="w-7 h-7 text-red-400" />
         </div>
         <div className="space-y-2">
-          <h1 className="text-xl font-bold text-slate-100">No se pudo abrir la sala</h1>
+          <h1 className="text-xl font-bold text-slate-100">{t('openErrorTitle')}</h1>
           <p className="text-sm text-slate-400 max-w-md">{loadError}</p>
         </div>
         <div className="flex items-center gap-3">
@@ -863,14 +900,14 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
               href={`/${locale}/login`}
               className="px-5 h-12 rounded-xl bg-amber-500 text-slate-950 font-semibold flex items-center justify-center hover:bg-amber-400 transition-colors"
             >
-              Iniciar sesión
+              {t('signIn')}
             </Link>
           )}
           <Link
             href={`/${locale}/library`}
             className="px-5 h-12 rounded-xl border border-slate-700 text-slate-300 font-semibold flex items-center justify-center hover:bg-slate-800 transition-colors"
           >
-            Volver a la biblioteca
+            {t('backToLibrary')}
           </Link>
         </div>
       </main>
@@ -893,14 +930,14 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
           <div>
             <div className="flex items-center gap-2">
               <span className="font-bold text-slate-100 text-lg tracking-tight truncate max-w-[40vw]">
-                {sessionInfo?.title || 'Partitura'}
+                {sessionInfo?.title || t('scoreFallbackTitle')}
               </span>
               <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-xs font-mono font-bold border border-amber-500/30">
-                Sala: {code.toUpperCase()}
+                {t('roomBadge', { code: code.toUpperCase() })}
               </span>
               {isDirector && (
                 <span className="px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 text-xs font-semibold border border-slate-700">
-                  Director
+                  {t('directorBadge')}
                 </span>
               )}
             </div>
@@ -912,7 +949,7 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
                 timeSignature,
               ]
                 .filter(Boolean)
-                .join(' • ') || 'Sesión de ensayo sincronizada'}
+                .join(' • ') || t('syncSessionFallback')}
             </p>
           </div>
         </div>
@@ -932,7 +969,7 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
             <button
               type="button"
               onClick={() => setDeviceLayout('mobile')}
-              title="Modo Celular (Enfoque en pentagrama)"
+              title={t('mobileModeTitle')}
               className={`p-1.5 rounded-lg transition-colors flex items-center gap-1 ${
                 deviceLayout === 'mobile'
                   ? 'bg-amber-500 text-slate-950 font-bold'
@@ -940,12 +977,12 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
               }`}
             >
               <Smartphone className="w-3.5 h-3.5" />
-              <span className="text-[11px]">Móvil</span>
+              <span className="text-[11px]">{t('mobileModeLabel')}</span>
             </button>
             <button
               type="button"
               onClick={() => setDeviceLayout('tablet')}
-              title="Modo Atril / Tablet (Página completa)"
+              title={t('tabletModeTitle')}
               className={`p-1.5 rounded-lg transition-colors flex items-center gap-1 ${
                 deviceLayout === 'tablet'
                   ? 'bg-amber-500 text-slate-950 font-bold'
@@ -953,12 +990,12 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
               }`}
             >
               <Tablet className="w-3.5 h-3.5" />
-              <span className="text-[11px]">Atril</span>
+              <span className="text-[11px]">{t('tabletModeLabel')}</span>
             </button>
             <button
               type="button"
               onClick={() => setDeviceLayout('desktop')}
-              title="Modo Escritorio"
+              title={t('desktopModeTitle')}
               className={`p-1.5 rounded-lg transition-colors flex items-center gap-1 ${
                 deviceLayout === 'desktop'
                   ? 'bg-amber-500 text-slate-950 font-bold'
@@ -966,30 +1003,30 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
               }`}
             >
               <Monitor className="w-3.5 h-3.5" />
-              <span className="text-[11px]">Escritorio</span>
+              <span className="text-[11px]">{t('desktopModeLabel')}</span>
             </button>
           </div>
 
           {/* Discrete Measure Indicator Selector (Punto 9) */}
           <div className="hidden lg:flex items-center gap-1 bg-slate-950 px-2 py-1 rounded-xl border border-slate-800 text-xs">
-            <span className="text-[10px] text-slate-400">Indicador:</span>
+            <span className="text-[10px] text-slate-400">{t('indicatorLabel')}</span>
             <select
               value={indicatorStyle}
               onChange={(e) => setIndicatorStyle(e.target.value as any)}
-              aria-label="Estilo de indicador de compás"
+              aria-label={t('indicatorAria')}
               className="bg-transparent text-amber-400 text-xs font-semibold focus:outline-none cursor-pointer"
             >
               <option value="subtle" className="bg-slate-900 text-slate-200">
-                Sombreado tenue
+                {t('indicatorSubtle')}
               </option>
               <option value="bar" className="bg-slate-900 text-slate-200">
-                Cursor vertical
+                {t('indicatorBar')}
               </option>
               <option value="minimal" className="bg-slate-900 text-slate-200">
-                Número discreto
+                {t('indicatorMinimal')}
               </option>
               <option value="none" className="bg-slate-900 text-slate-200">
-                Oculto
+                {t('indicatorNone')}
               </option>
             </select>
           </div>
@@ -1002,26 +1039,31 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
               className="h-9 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs text-amber-400 font-semibold flex items-center gap-1.5 transition-colors shadow-sm"
             >
               <Users className="w-3.5 h-3.5 text-amber-400" />
-              <span className="hidden sm:inline">Atriles de la orquesta</span>
+              <span className="hidden sm:inline">{t('orchestraStands')}</span>
               <span className="px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-300 font-mono text-[10px]">
                 {connectedUsers.length}
               </span>
             </button>
           )}
 
-          {/* Status Indicator & Instrument Picker */}
+          {/* Status Indicator, Language Switcher & Instrument Picker */}
           <div className="flex items-center gap-2">
+            <LanguageSwitcher compact />
+
             <div className="flex items-center gap-1.5 bg-slate-950 px-2.5 py-1.5 rounded-xl border border-slate-800 text-xs">
               <Radio
                 className={`w-3.5 h-3.5 ${status === 'playing' ? 'text-amber-400 animate-pulse' : 'text-slate-500'}`}
+                aria-hidden="true"
               />
-              <span className="capitalize font-semibold text-slate-300 hidden sm:inline">{status}</span>
+              <span className="font-semibold text-slate-300 hidden sm:inline">
+                {t(`status.${status}`)}
+              </span>
             </div>
 
             <select
               value={selectedInstrument}
               onChange={(e) => handleInstrumentChange(e.target.value)}
-              aria-label="Seleccionar atril / instrumento"
+              aria-label={t('selectInstrumentAria')}
               className="h-9 px-2.5 rounded-xl bg-slate-800 border border-slate-700 text-xs text-slate-200 focus:outline-none focus:border-amber-500 cursor-pointer"
             >
               {availableInstruments.map((inst) => (
@@ -1038,7 +1080,7 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
       <div className="flex-1 relative min-h-0 bg-slate-950 p-2 sm:p-4 flex items-center justify-center overflow-hidden">
         <div className="max-w-4xl w-full h-full bg-slate-900/90 border border-slate-800 rounded-2xl relative p-2 sm:p-4 shadow-2xl flex flex-col overflow-hidden">
           <MusicScoreSheet
-            title={sessionInfo?.title || 'Partitura'}
+            title={sessionInfo?.title || t('scoreFallbackTitle')}
             composer={sessionInfo?.composer || ''}
             subtitle={sessionInfo?.subtitle || ''}
             timeSignature={timeSignature || '4/4'}
@@ -1051,15 +1093,28 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
             onPageChange={setActivePageNumber}
             deviceLayout={deviceLayout}
             measureIndicatorStyle={indicatorStyle}
+            labels={{
+              facsimile: tSheet('facsimile'),
+              digitalSvg: tSheet('digitalSvg'),
+              activePart: tSheet('activePart'),
+              loadingScore: tSheet('loadingScore'),
+              prevPageAria: tSheet('prevPageAria'),
+              nextPageAria: tSheet('nextPageAria'),
+              pageShort: tSheet('pageShort'),
+              showingSvg: tSheet('showingSvg'),
+              measureWord: tSheet('measureWord'),
+              measurePrefix: tSheet('measurePrefix'),
+              pageWord: locale === 'en' ? 'Page' : 'Página',
+            }}
             highlightLabel={
-              activeSystem ? `${selectedInstrument} — Compás ${currentMeasure}` : undefined
+              activeSystem ? t('highlightMeasure', { instrument: selectedInstrument, measure: currentMeasure }) : undefined
             }
           />
 
           {/* Measure Progress Footer Badge */}
           <div className="absolute bottom-3 right-3 sm:bottom-4 sm:right-6 z-10 bg-slate-950/80 backdrop-blur-md px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl border border-slate-800 flex items-center gap-2 sm:gap-3 shadow-xl">
             <span className="text-[10px] sm:text-xs text-slate-400 uppercase tracking-wider font-semibold">
-              Compás
+              {t('measureLabel')}
             </span>
             <span className="font-mono text-lg sm:text-xl font-bold text-amber-400">
               {currentMeasure}
@@ -1087,7 +1142,7 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
                 }`}
               >
                 <Timer className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Metrónomo</span>
+                <span className="hidden sm:inline">{t('metronomeMode')}</span>
               </button>
               <button
                 type="button"
@@ -1102,13 +1157,13 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
                 }`}
               >
                 <HandMetal className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Manual</span>
+                <span className="hidden sm:inline">{t('manualMode')}</span>
               </button>
             </div>
           ) : (
             <div className="flex items-center gap-2 text-slate-400 text-xs">
               <Users className="w-4 h-4 text-amber-400" />
-              <span>{connectedUsers.length} en sala</span>
+              <span>{t('inRoomCount', { count: connectedUsers.length })}</span>
             </div>
           )}
         </div>
@@ -1118,22 +1173,22 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
           <div className="flex items-center gap-3">
             <button
               onClick={() => handleSeek(Math.max(1, currentMeasure - 1))}
-              aria-label="Compás anterior"
+              aria-label={t('prevMeasureAria')}
               className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs border border-slate-700 transition-colors flex items-center gap-1"
             >
               <ChevronLeft className="w-4 h-4" />
-              <span>Compás -</span>
+              <span>{t('prevMeasureBtn')}</span>
             </button>
             <div className="px-3 py-1 bg-amber-500/20 border border-amber-500/40 rounded-xl text-center">
-              <span className="text-[10px] text-amber-300 block uppercase font-mono">Modo Manual</span>
-              <span className="text-sm font-bold text-amber-400 font-mono">Compás {currentMeasure}</span>
+              <span className="text-[10px] text-amber-300 block uppercase font-mono">{t('manualModeBadge')}</span>
+              <span className="text-sm font-bold text-amber-400 font-mono">{t('currentMeasureBadge', { measure: currentMeasure })}</span>
             </div>
             <button
               onClick={() => handleSeek(currentMeasure + 1)}
-              aria-label="Siguiente compás"
+              aria-label={t('nextMeasureAria')}
               className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-lg shadow-amber-500/25 transition-all flex items-center gap-1"
             >
-              <span>Siguiente compás</span>
+              <span>{t('nextMeasureBtn')}</span>
               <ChevronLeft className="w-4 h-4 rotate-180" />
             </button>
           </div>
@@ -1142,7 +1197,7 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
             <button
               onClick={() => handleSeek((measureFromAnchor() ?? currentMeasure) - 4)}
               disabled={!isDirector}
-              aria-label="Retroceder 4 compases"
+              aria-label={t('rewind4Aria')}
               className="p-2 sm:p-2.5 rounded-xl text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <Rewind className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -1152,7 +1207,7 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
               <button
                 onClick={handlePause}
                 disabled={!isDirector}
-                aria-label="Pausar"
+                aria-label={t('pauseAria')}
                 className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-amber-500 text-slate-950 flex items-center justify-center shadow-lg shadow-amber-500/25 hover:bg-amber-400 transition-all disabled:opacity-50"
               >
                 <Pause className="w-5 h-5 sm:w-6 sm:h-6 fill-current" />
@@ -1161,7 +1216,7 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
               <button
                 onClick={handlePlay}
                 disabled={!isDirector}
-                aria-label="Reproducir"
+                aria-label={t('playAria')}
                 className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-amber-500 text-slate-950 flex items-center justify-center shadow-lg shadow-amber-500/25 hover:bg-amber-400 transition-all disabled:opacity-50"
               >
                 <Play className="w-5 h-5 sm:w-6 sm:h-6 fill-current ml-0.5" />
@@ -1171,7 +1226,7 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
             <button
               onClick={handleStop}
               disabled={!isDirector}
-              aria-label="Detener"
+              aria-label={t('stopAria')}
               className="p-2 sm:p-2.5 rounded-xl text-slate-400 hover:text-red-400 hover:bg-slate-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <Square className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -1180,7 +1235,7 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
             <button
               onClick={() => handleSeek((measureFromAnchor() ?? currentMeasure) + 4)}
               disabled={!isDirector}
-              aria-label="Avanzar 4 compases"
+              aria-label={t('forward4Aria')}
               className="p-2 sm:p-2.5 rounded-xl text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <FastForward className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -1191,13 +1246,13 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
         {/* Live Tempo Controls */}
         <div className="flex items-center gap-2 sm:gap-3">
           <span className="hidden sm:inline text-xs font-semibold text-slate-400 uppercase tracking-wider">
-            Tempo
+            {t('tempoLabel')}
           </span>
           <div className="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-xl p-1">
             <button
               onClick={() => handleTempoChange(Math.max(40, tempoBpm - 5))}
               disabled={!isDirector}
-              aria-label="Reducir tempo"
+              aria-label={t('decreaseTempoAria')}
               className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg text-slate-400 hover:text-amber-400 hover:bg-slate-900 transition-colors font-bold disabled:opacity-50"
             >
               -
@@ -1208,7 +1263,7 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
             <button
               onClick={() => handleTempoChange(Math.min(240, tempoBpm + 5))}
               disabled={!isDirector}
-              aria-label="Aumentar tempo"
+              aria-label={t('increaseTempoAria')}
               className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg text-slate-400 hover:text-amber-400 hover:bg-slate-900 transition-colors font-bold disabled:opacity-50"
             >
               +
@@ -1227,10 +1282,10 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
               <div>
                 <h3 className="font-bold text-slate-100 text-lg flex items-center gap-2">
                   <Users className="w-5 h-5 text-amber-400" />
-                  Atriles y Asignación de Particellas
+                  {t('standManagerTitle')}
                 </h3>
                 <p className="text-xs text-slate-400 mt-1">
-                  Asigna o reasigna en tiempo real el atril / instrumento a cada músico conectado.
+                  {t('standManagerDesc')}
                 </p>
               </div>
               <button
@@ -1246,7 +1301,7 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
             <div className="p-5 flex-1 overflow-y-auto space-y-3">
               {connectedUsers.length === 0 ? (
                 <p className="text-center text-xs text-slate-500 py-8">
-                  Esperando a que los músicos se conecten a la sala...
+                  {t('waitingMusicians')}
                 </p>
               ) : (
                 connectedUsers.map((u, idx) => {
@@ -1259,7 +1314,7 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <span className="font-mono text-xs text-slate-200 font-semibold truncate">
-                            {u.user === 'director' ? 'Director de orquesta' : `Músico (${(u.userId || '').slice(0, 8)})`}
+                            {u.user === 'director' ? t('conductorLabel') : t('musicianShort', { id: (u.userId || '').slice(0, 8) })}
                           </span>
                           <span
                             className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
@@ -1268,11 +1323,11 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
                                 : 'bg-slate-800 text-slate-400'
                             }`}
                           >
-                            {u.user}
+                            {u.user === 'director' ? t('roleDirector') : t('roleMusician')}
                           </span>
                         </div>
                         <p className="text-[11px] text-slate-400 mt-0.5">
-                          Atril actual: <strong className="text-slate-200">{u.instrument}</strong>
+                          {t('currentStand')} <strong className="text-slate-200">{u.instrument}</strong>
                         </p>
                       </div>
 
@@ -1301,7 +1356,7 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
                           className="h-8 px-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 disabled:opacity-40 disabled:cursor-not-allowed text-slate-950 font-bold text-xs transition-colors flex items-center gap-1 shadow"
                         >
                           <Check className="w-3.5 h-3.5" />
-                          <span>Asignar</span>
+                          <span>{t('assignBtn')}</span>
                         </button>
                       </div>
                     </div>
@@ -1317,7 +1372,7 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
                 onClick={() => setShowStandManager(false)}
                 className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs transition-colors"
               >
-                Cerrar
+                {t('closeBtn')}
               </button>
             </div>
           </div>
@@ -1328,10 +1383,11 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
 }
 
 function SessionLoading() {
+  const t = useTranslations('sessionPage')
   return (
     <main className="h-dvh bg-slate-950 flex flex-col items-center justify-center gap-4 text-slate-300">
       <Loader2 className="w-8 h-8 text-amber-400 animate-spin" />
-      <p className="text-sm">Cargando sala…</p>
+      <p className="text-sm">{t('loadingRoom')}</p>
     </main>
   )
 }

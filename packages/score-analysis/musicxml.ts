@@ -1,4 +1,4 @@
-import type { ScoreAnalysisResult, DetectedPart, PlaybackJump } from './types'
+import type { ScoreAnalysisResult, DetectedPart, PlaybackJump } from './types.ts'
 
 const FIFTHS_TO_KEY: Record<string, string> = {
   '0_major': 'C major',

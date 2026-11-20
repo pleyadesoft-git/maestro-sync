@@ -2,6 +2,7 @@
   "name": "@music-flow/score-analysis",
   "version": "0.0.0",
   "private": true,
+  "type": "module",
   "main": "./index.ts",
   "types": "./index.ts",
   "scripts": {

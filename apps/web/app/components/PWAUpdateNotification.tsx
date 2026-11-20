@@ -267,7 +267,7 @@ export default function PWAUpdateNotification() {
           <button
             type="button"
             onClick={() => setShowUpdate(false)}
-            aria-label="Cerrar notificación"
+            aria-label={t('closeUpdateAria')}
             className="absolute top-3 right-3 rounded-lg p-1 text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors cursor-pointer"
           >
             <X className="h-4 w-4" />

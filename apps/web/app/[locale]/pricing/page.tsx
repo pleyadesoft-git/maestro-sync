@@ -3,9 +3,11 @@
 import React, { useState } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
+import { useTranslations } from 'next-intl'
 import { Button, Card, Input } from '@music-flow/ui'
 import { createBrowserClient } from '@music-flow/supabase'
 import { CopyrightNotice } from '../../components/CopyrightNotice'
+import LanguageSwitcher from '../../components/LanguageSwitcher'
 import {
   Check,
   Sparkles,
@@ -23,6 +25,8 @@ export default function PricingPage() {
   const router = useRouter()
   const params = useParams<{ locale?: string }>()
   const locale = params?.locale ?? 'es'
+  const t = useTranslations('pricing')
+  const tCommon = useTranslations('common')
   const supabase = createBrowserClient()
 
   const [interval, setInterval] = useState<'month' | 'year'>('month')
@@ -62,12 +66,12 @@ export default function PricingPage() {
 
       const json = await res.json()
       if (!res.ok || !json.ok || !json.url) {
-        throw new Error(json.error || 'No se pudo iniciar el proceso de suscripción.')
+        throw new Error(json.error || t('checkoutError'))
       }
 
       window.location.href = json.url
     } catch (err: any) {
-      setErrorMsg(err?.message || 'Error al conectar con la pasarela de pago.')
+      setErrorMsg(err?.message || t('gatewayError'))
       setLoadingPlan(null)
     }
   }
@@ -76,7 +80,7 @@ export default function PricingPage() {
     e.preventDefault()
     const trimmed = courtesyCode.trim().toUpperCase()
     if (!trimmed) {
-      setCourtesyError('Introduce un código de cortesía válido.')
+      setCourtesyError(t('courtesyInvalid'))
       return
     }
 
@@ -103,19 +107,19 @@ export default function PricingPage() {
 
       const json = await res.json()
       if (!res.ok || !json.ok) {
-        setCourtesyError(json.error || 'No se pudo canjear el código de cortesía.')
+        setCourtesyError(json.error || t('courtesyRedeemError'))
         return
       }
 
       setCourtesySuccess(
-        `¡Código ${json.code} activado! Disfruta 1 mes de ${json.planName}. Redirigiendo a tu biblioteca…`
+        t('courtesySuccess', { code: json.code, planName: json.planName })
       )
       setCourtesyCode('')
       setTimeout(() => {
         router.push(`/${locale}/library`)
       }, 2000)
     } catch (err: any) {
-      setCourtesyError(err?.message || 'Error al canjear el código de cortesía.')
+      setCourtesyError(err?.message || t('courtesyRedeemError'))
     } finally {
       setRedeemingCourtesy(false)
     }
@@ -126,37 +130,40 @@ export default function PricingPage() {
       <div className="max-w-6xl mx-auto space-y-12">
         {/* Navigation & Header */}
         <div className="text-center space-y-4">
-          <div className="flex items-center justify-between max-w-6xl mx-auto mb-2">
+          <div className="flex flex-wrap items-center justify-between gap-3 max-w-6xl mx-auto mb-2">
             <Link
               href={`/${locale}`}
               className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-amber-400 transition-colors"
             >
               <ArrowLeft className="w-4 h-4" />
-              <span>Volver al Inicio</span>
+              <span>{t('backHome')}</span>
             </Link>
-            <div className="flex items-center gap-2">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="/icons/icon-192x192.png"
-                alt="MaestroSync Logo"
-                className="w-8 h-8 rounded-lg border border-amber-500/30"
-              />
-              <span className="font-extrabold text-slate-100 text-base">
-                Maestro<span className="text-amber-500">Sync</span>
-              </span>
+            <div className="flex items-center gap-3">
+              <LanguageSwitcher />
+              <div className="flex items-center gap-2">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/icons/icon-192x192.png"
+                  alt={tCommon('logoAlt')}
+                  className="w-8 h-8 rounded-lg border border-amber-500/30"
+                />
+                <span className="font-extrabold text-slate-100 text-base">
+                  Maestro<span className="text-amber-500">Sync</span>
+                </span>
+              </div>
             </div>
           </div>
 
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-semibold">
             <Sparkles className="w-3.5 h-3.5" />
-            Precios especiales de introducción • 7 días de prueba gratuita
+            {t('promoBadge')}
           </div>
 
           <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight text-slate-100">
-            Planes diseñados para cada músico y ensamble
+            {t('title')}
           </h1>
           <p className="text-slate-400 max-w-2xl mx-auto text-sm sm:text-base">
-            Sincronización milimétrica sin drift, lectura inteligente interactiva y control total desde atriles y escenarios.
+            {t('subtitle')}
           </p>
 
           {/* Billing Interval Toggle with -15% Discount Badge */}
@@ -171,7 +178,7 @@ export default function PricingPage() {
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                Mensual
+                {t('monthly')}
               </button>
               <button
                 type="button"
@@ -182,9 +189,9 @@ export default function PricingPage() {
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                <span>Anual</span>
+                <span>{t('annual')}</span>
                 <span className="px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-extrabold border border-emerald-500/30">
-                  -15% Dto.
+                  {t('discountBadge')}
                 </span>
               </button>
             </div>
@@ -207,46 +214,46 @@ export default function PricingPage() {
                   <Music className="w-6 h-6" />
                 </div>
                 <span className="text-[11px] font-semibold text-amber-400/90 bg-amber-500/10 px-2.5 py-0.5 rounded-full border border-amber-500/20">
-                  Introducción
+                  {t('introBadge')}
                 </span>
               </div>
               <h3 className="text-xl font-bold text-slate-100">Solo</h3>
-              <p className="text-xs text-slate-400 mt-1">Para solistas, estudiantes y músicos independientes.</p>
+              <p className="text-xs text-slate-400 mt-1">{t('soloDesc')}</p>
 
               <div className="mt-6 flex items-baseline gap-1">
                 <span className="text-4xl font-extrabold text-slate-100">
                   {interval === 'year' ? '$51' : '$5'}
                 </span>
-                <span className="text-xs text-slate-400">USD / {interval === 'year' ? 'año' : 'mes'}</span>
+                <span className="text-xs text-slate-400">USD / {interval === 'year' ? t('perYear') : t('perMonth')}</span>
               </div>
               {interval === 'year' && (
-                <p className="text-[11px] text-emerald-400 mt-1 font-medium">Equivale a $4.25 USD/mes</p>
+                <p className="text-[11px] text-emerald-400 mt-1 font-medium">{t('soloAnnualEquiv')}</p>
               )}
 
               <ul className="mt-6 space-y-3 text-xs text-slate-300">
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Control de reproducción propio (solista)</span>
+                  <span>{t('soloF1')}</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Subida y biblioteca ilimitada de partituras</span>
+                  <span>{t('soloF2')}</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Detección automática de compases, tempo y armadura</span>
+                  <span>{t('soloF3')}</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Cambio de escala (key) y tempo dinámico</span>
+                  <span>{t('soloF4')}</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Compartir partituras y configuración libremente</span>
+                  <span>{t('soloF5')}</span>
                 </li>
                 <li className="flex items-center gap-2 text-emerald-300">
                   <Check className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>Pago proporcionalmente menor si te unes a una Band u Orchestra</span>
+                  <span>{t('soloF6')}</span>
                 </li>
               </ul>
             </div>
@@ -257,14 +264,14 @@ export default function PricingPage() {
               disabled={loadingPlan === 'solo'}
               className="w-full mt-6"
             >
-              {loadingPlan === 'solo' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Elegir Plan Solo'}
+              {loadingPlan === 'solo' ? <Loader2 className="w-4 h-4 animate-spin" /> : t('chooseSolo')}
             </Button>
           </Card>
 
           {/* 2. Band ($65 USD) - Más Popular */}
           <Card className="flex flex-col justify-between border-amber-500/60 bg-gradient-to-b from-amber-950/20 to-slate-900/90 relative p-6 sm:p-8 space-y-6 shadow-xl ring-1 ring-amber-500/30">
             <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-amber-500 text-slate-950 font-bold text-[10px] tracking-wide uppercase">
-              Más Popular
+              {t('mostPopular')}
             </div>
 
             <div>
@@ -273,45 +280,45 @@ export default function PricingPage() {
                   <Users className="w-6 h-6" />
                 </div>
                 <span className="text-[11px] font-semibold text-amber-400 bg-amber-500/20 px-2.5 py-0.5 rounded-full border border-amber-500/30">
-                  Introducción
+                  {t('introBadge')}
                 </span>
               </div>
               <h3 className="text-xl font-bold text-slate-100">Band</h3>
-              <p className="text-xs text-slate-400 mt-1">Para grupos, bandas y ensambles de 2 a 20 músicos.</p>
+              <p className="text-xs text-slate-400 mt-1">{t('bandDesc')}</p>
 
               <div className="mt-6 flex items-baseline gap-1">
                 <span className="text-4xl font-extrabold text-slate-100">
                   {interval === 'year' ? '$663' : '$65'}
                 </span>
-                <span className="text-xs text-slate-400">USD / {interval === 'year' ? 'año' : 'mes'}</span>
+                <span className="text-xs text-slate-400">USD / {interval === 'year' ? t('perYear') : t('perMonth')}</span>
               </div>
               {interval === 'year' && (
-                <p className="text-[11px] text-emerald-400 mt-1 font-medium">Equivale a $55.25 USD/mes</p>
+                <p className="text-[11px] text-emerald-400 mt-1 font-medium">{t('bandAnnualEquiv')}</p>
               )}
               <p className="text-[11px] text-amber-400 mt-1 font-medium">
-                De 2 a 20 músicos incluidos sin costos extra
+                {t('bandHighlight')}
               </p>
 
               <ul className="mt-6 space-y-3 text-xs text-slate-300">
                 <li className="flex items-center gap-2 font-semibold text-slate-200">
                   <Check className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>De 2 a 20 músicos por ensamble</span>
+                  <span>{t('bandF1')}</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Director con control de la partitura y tempo en vivo</span>
+                  <span>{t('bandF2')}</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Atriles sincronizados milimétricamente en tiempo real</span>
+                  <span>{t('bandF3')}</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Transposición dinámica y seguimiento interactivo</span>
+                  <span>{t('bandF4')}</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Compartir partituras y configuración con cualquier usuario</span>
+                  <span>{t('bandF5')}</span>
                 </li>
               </ul>
             </div>
@@ -322,7 +329,7 @@ export default function PricingPage() {
               disabled={loadingPlan === 'band'}
               className="w-full mt-6"
             >
-              {loadingPlan === 'band' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Elegir Plan Band'}
+              {loadingPlan === 'band' ? <Loader2 className="w-4 h-4 animate-spin" /> : t('chooseBand')}
             </Button>
           </Card>
 
@@ -334,45 +341,45 @@ export default function PricingPage() {
                   <ShieldCheck className="w-6 h-6" />
                 </div>
                 <span className="text-[11px] font-semibold text-amber-400/90 bg-amber-500/10 px-2.5 py-0.5 rounded-full border border-amber-500/20">
-                  Introducción
+                  {t('introBadge')}
                 </span>
               </div>
               <h3 className="text-xl font-bold text-slate-100">Orchestra</h3>
-              <p className="text-xs text-slate-400 mt-1">Para orquestas sinfónicas, filarmónicas y grandes agrupaciones.</p>
+              <p className="text-xs text-slate-400 mt-1">{t('orchestraDesc')}</p>
 
               <div className="mt-6 flex items-baseline gap-1">
                 <span className="text-4xl font-extrabold text-slate-100">
                   {interval === 'year' ? '$969' : '$95'}
                 </span>
-                <span className="text-xs text-slate-400">USD / {interval === 'year' ? 'año' : 'mes'}</span>
+                <span className="text-xs text-slate-400">USD / {interval === 'year' ? t('perYear') : t('perMonth')}</span>
               </div>
               {interval === 'year' && (
-                <p className="text-[11px] text-emerald-400 mt-1 font-medium">Equivale a $80.75 USD/mes</p>
+                <p className="text-[11px] text-emerald-400 mt-1 font-medium">{t('orchestraAnnualEquiv')}</p>
               )}
               <p className="text-[11px] text-amber-400 mt-1 font-medium">
-                Músicos y atriles ilimitados (más de 20 músicos)
+                {t('orchestraHighlight')}
               </p>
 
               <ul className="mt-6 space-y-3 text-xs text-slate-300">
                 <li className="flex items-center gap-2 font-semibold text-slate-200">
                   <Check className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Músicos y atriles ilimitados sin restricciones</span>
+                  <span>{t('orchestraF1')}</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Full score para el director y particellas por instrumento</span>
+                  <span>{t('orchestraF2')}</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Sincronización en tiempo real para orquesta completa</span>
+                  <span>{t('orchestraF3')}</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Transposición de partes y modulación en vivo</span>
+                  <span>{t('orchestraF4')}</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Compartir partituras y configuración con cualquier usuario</span>
+                  <span>{t('orchestraF5')}</span>
                 </li>
               </ul>
             </div>
@@ -383,24 +390,24 @@ export default function PricingPage() {
               disabled={loadingPlan === 'orchestra'}
               className="w-full mt-6"
             >
-              {loadingPlan === 'orchestra' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Elegir Plan Orchestra'}
+              {loadingPlan === 'orchestra' ? <Loader2 className="w-4 h-4 animate-spin" /> : t('chooseOrchestra')}
             </Button>
           </Card>
         </div>
 
-        {/* Sección de Canje de Código de Cortesía de 1 Mes */}
+        {/* Sección de Canje de Código de Cortesía de 7 Días */}
         <Card className="border-amber-500/30 bg-slate-900/80 p-6 sm:p-8">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
             <div className="space-y-1.5 max-w-xl">
               <div className="inline-flex items-center gap-2 text-xs font-bold text-amber-400 uppercase tracking-wider">
                 <Gift className="w-4 h-4" />
-                <span>Cortesía de 1 Mes (30 días)</span>
+                <span>{t('courtesyBadge')}</span>
               </div>
               <h2 className="text-xl font-bold text-slate-100">
-                ¿Tienes un código de cortesía generado?
+                {t('courtesyTitle')}
               </h2>
               <p className="text-xs sm:text-sm text-slate-400">
-                Ingresa tu código de cortesía para activar 1 mes completo sin costo en el plan Solo, Band u Orchestra asignado al código.
+                {t('courtesyDesc')}
               </p>
             </div>
 
@@ -413,7 +420,7 @@ export default function PricingPage() {
                 <Input
                   type="text"
                   required
-                  placeholder="Ej. MS-SOLO-8F4K2A"
+                  placeholder={t('courtesyPlaceholder')}
                   value={courtesyCode}
                   errorMessage={courtesyError || undefined}
                   onChange={(e) => {
@@ -432,10 +439,10 @@ export default function PricingPage() {
                 {redeemingCourtesy ? (
                   <>
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Activando…
+                    {t('courtesyActivating')}
                   </>
                 ) : (
-                  'Canjear Cortesía'
+                  t('courtesyButton')
                 )}
               </Button>
             </form>
@@ -456,10 +463,8 @@ export default function PricingPage() {
         <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 flex items-start gap-3.5 text-xs text-slate-400">
           <Share2 className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
           <div className="space-y-1">
-            <p className="font-semibold text-slate-200">Compartir partituras y configuración en todos los planes</p>
-            <p>
-              Tanto en <strong>Solo</strong>, <strong>Band</strong> como en <strong>Orchestra</strong>, puedes compartir tus partituras y sus configuraciones (tonalidad/escala, tempo BPM y notas) con otros músicos registrados sin restricciones.
-            </p>
+            <p className="font-semibold text-slate-200">{t('sharingTitle')}</p>
+            <p>{t('sharingDesc')}</p>
           </div>
         </div>
 
@@ -467,12 +472,8 @@ export default function PricingPage() {
         <div className="p-5 rounded-2xl bg-emerald-500/5 border border-emerald-500/30 flex items-start gap-3.5 text-xs text-slate-300">
           <Users className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
           <div className="space-y-1">
-            <p className="font-semibold text-emerald-300">Descuento proporcional para usuarios Solo</p>
-            <p>
-              Si tienes el plan <strong>Solo</strong> y formas parte de una <strong>Band</strong> (Tier 2) u{' '}
-              <strong>Orchestra</strong> (Tier 3), el pago de tu plan Solo disminuye de forma proporcional, ya que tu
-              acceso queda cubierto por el plan del ensamble.
-            </p>
+            <p className="font-semibold text-emerald-300">{t('proportionalTitle')}</p>
+            <p>{t('proportionalDesc')}</p>
           </div>
         </div>
 

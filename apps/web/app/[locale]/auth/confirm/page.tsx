@@ -3,13 +3,16 @@
 import React, { useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
+import { useTranslations } from 'next-intl'
 import { Button, Card, CardHeader, CardTitle, CardDescription } from '@music-flow/ui'
 import { createBrowserClient } from '@music-flow/supabase'
 import { useAuthStore } from '@music-flow/stores'
-import { CheckCircle2, AlertCircle, Loader2, Sparkles, ArrowRight } from 'lucide-react'
+import { CheckCircle2, AlertCircle, Loader2, ArrowRight } from 'lucide-react'
+import LanguageSwitcher from '../../../components/LanguageSwitcher'
 
 export default function ConfirmPage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = React.use(params)
+  const t = useTranslations('authConfirm')
   const router = useRouter()
   const searchParams = useSearchParams()
   const { setAuth } = useAuthStore()
@@ -97,9 +100,7 @@ export default function ConfirmPage({ params }: { params: Promise<{ locale: stri
 
       // 3. Si no hay parámetros ni sesión
       setStatus('error')
-      setErrorMessage(
-        'El enlace de confirmación es inválido o ha expirado. Por favor solicita uno nuevo desde la pantalla de acceso.'
-      )
+      setErrorMessage(t('invalidLink'))
     }
 
     checkConfirmation()
@@ -107,10 +108,13 @@ export default function ConfirmPage({ params }: { params: Promise<{ locale: stri
     return () => {
       cancelled = true
     }
-  }, [locale, router, searchParams, setAuth])
+  }, [locale, router, searchParams, setAuth, t])
 
   return (
     <main className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 relative">
+      <div className="absolute top-6 right-6">
+        <LanguageSwitcher />
+      </div>
       <Card className="max-w-md w-full border-amber-500/20 text-center">
         <CardHeader className="text-center">
           <div className="mx-auto w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 mb-3">
@@ -120,19 +124,15 @@ export default function ConfirmPage({ params }: { params: Promise<{ locale: stri
           </div>
 
           <CardTitle className="text-2xl">
-            {status === 'verifying' && 'Confirmando tu cuenta…'}
-            {status === 'success' && '¡Cuenta confirmada con éxito!'}
-            {status === 'error' && 'Enlace de confirmación no válido'}
+            {status === 'verifying' && t('verifyingTitle')}
+            {status === 'success' && t('successTitle')}
+            {status === 'error' && t('errorTitle')}
           </CardTitle>
 
           <CardDescription>
-            {status === 'verifying' &&
-              'Estamos verificando tu enlace de seguridad de MaestroSync.'}
-            {status === 'success' &&
-              'Tu correo ha sido verificado. Te estamos redirigiendo a tu biblioteca de partituras…'}
-            {status === 'error' &&
-              (errorMessage ||
-                'No se pudo verificar el correo. El enlace pudo haber expirado.')}
+            {status === 'verifying' && t('verifyingDesc')}
+            {status === 'success' && t('successDesc')}
+            {status === 'error' && (errorMessage || t('errorFallbackDesc'))}
           </CardDescription>
         </CardHeader>
 
@@ -143,7 +143,7 @@ export default function ConfirmPage({ params }: { params: Promise<{ locale: stri
               variant="primary"
               className="w-full"
             >
-              <span>Ir a la Biblioteca ahora</span>
+              <span>{t('goToLibrary')}</span>
               <ArrowRight className="w-4 h-4 ml-2" />
             </Button>
           )}
@@ -151,7 +151,7 @@ export default function ConfirmPage({ params }: { params: Promise<{ locale: stri
           {status === 'error' && (
             <Button asChild variant="primary" className="w-full">
               <Link href={`/${locale}/login`}>
-                <span>Volver a Iniciar Sesión</span>
+                <span>{t('backToLogin')}</span>
               </Link>
             </Button>
           )}

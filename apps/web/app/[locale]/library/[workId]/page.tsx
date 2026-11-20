@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
+import { useTranslations } from 'next-intl'
 import { Button, Card, CardHeader, CardTitle, CardDescription, Input } from '@music-flow/ui'
 import { createBrowserClient } from '@music-flow/supabase'
 import {
@@ -19,6 +20,7 @@ import {
   FileText,
 } from 'lucide-react'
 import { createRoomForVersion } from '../../../../lib/rooms'
+import LanguageSwitcher from '../../../components/LanguageSwitcher'
 
 const KEY_SIGNATURES = [
   'C major', 'G major', 'D major', 'A major', 'E major', 'Bb major', 'F major',
@@ -31,6 +33,8 @@ export default function WorkDetailPage({ params }: { params: Promise<{ locale: s
   const routeParams = useParams<{ locale?: string; workId?: string }>()
   const locale = routeParams?.locale ?? 'es'
   const workId = routeParams?.workId ?? ''
+  const t = useTranslations('workDetail')
+  const tKeys = useTranslations('keySignatures')
   const router = useRouter()
   const supabase = createBrowserClient()
 
@@ -84,7 +88,7 @@ export default function WorkDetailPage({ params }: { params: Promise<{ locale: s
 
         if (cancelled) return
         if (workError || !work) {
-          throw new Error('Obra no encontrada o sin permisos de acceso.')
+          throw new Error(t('notFound'))
         }
 
         setTitle(work.title || '')
@@ -124,7 +128,7 @@ export default function WorkDetailPage({ params }: { params: Promise<{ locale: s
         }
       } catch (err: any) {
         if (!cancelled) {
-          setStatusMessage({ type: 'error', text: err?.message || 'Error cargando datos de la obra.' })
+          setStatusMessage({ type: 'error', text: err?.message || t('loadError') })
         }
       } finally {
         if (!cancelled) setLoading(false)
@@ -135,11 +139,14 @@ export default function WorkDetailPage({ params }: { params: Promise<{ locale: s
     return () => {
       cancelled = true
     }
-  }, [workId, supabase, router, locale])
+  }, [workId, supabase, router, locale, t])
 
-  const handleSaveChanges = async (e: React.FormEvent) => {
+  const handleSaveChanges = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (saving) return
+    if (!e.currentTarget.checkValidity()) {
+      return
+    }
     setStatusMessage(null)
     setSaving(true)
 
@@ -169,9 +176,9 @@ export default function WorkDetailPage({ params }: { params: Promise<{ locale: s
           .eq('id', versionId)
       }
 
-      setStatusMessage({ type: 'success', text: 'Cambios de metadata guardados exitosamente.' })
+      setStatusMessage({ type: 'success', text: t('saveSuccess') })
     } catch (err: any) {
-      setStatusMessage({ type: 'error', text: err?.message || 'No se pudieron guardar los cambios.' })
+      setStatusMessage({ type: 'error', text: err?.message || t('saveError') })
     } finally {
       setSaving(false)
     }
@@ -179,9 +186,7 @@ export default function WorkDetailPage({ params }: { params: Promise<{ locale: s
 
   const handleResetMarkup = async () => {
     if (!scoreId) return
-    const confirmed = window.confirm(
-      '¿Deseas restablecer el marcado de pentagramas y compases? El archivo original se conservará intacto para que puedas volver a capturar la metadata.'
-    )
+    const confirmed = window.confirm(t('confirmResetMarkup'))
     if (!confirmed) return
 
     setResetting(true)
@@ -195,19 +200,17 @@ export default function WorkDetailPage({ params }: { params: Promise<{ locale: s
       setSystemsCount(0)
       setStatusMessage({
         type: 'success',
-        text: 'Marcado restablecido. Puedes editar la estructura nuevamente en cualquier momento.',
+        text: t('resetMarkupSuccess'),
       })
     } catch (err: any) {
-      setStatusMessage({ type: 'error', text: err?.message || 'Error al restablecer marcado.' })
+      setStatusMessage({ type: 'error', text: err?.message || t('resetMarkupError') })
     } finally {
       setResetting(false)
     }
   }
 
   const handleDeleteEntireWork = async () => {
-    const confirmed = window.confirm(
-      '¿Estás seguro de que deseas eliminar permanentemente esta obra y todos sus archivos?'
-    )
+    const confirmed = window.confirm(t('confirmDeleteWork'))
     if (!confirmed) return
 
     setDeleting(true)
@@ -221,7 +224,7 @@ export default function WorkDetailPage({ params }: { params: Promise<{ locale: s
 
       router.push(`/${locale}/library`)
     } catch (err: any) {
-      setStatusMessage({ type: 'error', text: err?.message || 'Error al eliminar la obra.' })
+      setStatusMessage({ type: 'error', text: err?.message || t('deleteWorkError') })
       setDeleting(false)
     }
   }
@@ -238,7 +241,7 @@ export default function WorkDetailPage({ params }: { params: Promise<{ locale: s
       }
       router.push(`/${locale}/session/${result.roomCode}`)
     } catch (err: any) {
-      setStatusMessage({ type: 'error', text: err?.message || 'Error iniciando sala.' })
+      setStatusMessage({ type: 'error', text: err?.message || t('startSessionError') })
     } finally {
       setStarting(false)
     }
@@ -248,7 +251,7 @@ export default function WorkDetailPage({ params }: { params: Promise<{ locale: s
     return (
       <main className="min-h-screen bg-slate-950 flex flex-col items-center justify-center gap-4 text-slate-300">
         <Loader2 className="w-8 h-8 text-amber-400 animate-spin" />
-        <p className="text-sm">Cargando detalles de la partitura…</p>
+        <p className="text-sm">{t('loading')}</p>
       </main>
     )
   }
@@ -257,15 +260,16 @@ export default function WorkDetailPage({ params }: { params: Promise<{ locale: s
     <main className="min-h-screen bg-slate-950 p-6 sm:p-10">
       <div className="max-w-4xl mx-auto space-y-6">
         {/* Header de navegación */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <Link
             href={`/${locale}/library`}
             className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-amber-400 transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
-            <span>Volver a la Biblioteca</span>
+            <span>{t('backToLibrary')}</span>
           </Link>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
+            <LanguageSwitcher />
             <Button
               type="button"
               variant="primary"
@@ -275,7 +279,7 @@ export default function WorkDetailPage({ params }: { params: Promise<{ locale: s
               className="gap-1.5"
             >
               {starting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4 fill-current" />}
-              <span>Iniciar Ensayo en Vivo</span>
+              <span>{t('startLiveRehearsal')}</span>
             </Button>
           </div>
         </div>
@@ -298,43 +302,43 @@ export default function WorkDetailPage({ params }: { params: Promise<{ locale: s
           </div>
         )}
 
-        <form onSubmit={handleSaveChanges} className="space-y-6">
+        <form onSubmit={handleSaveChanges} noValidate className="space-y-6">
           <Card className="border-amber-500/20">
             <CardHeader>
               <CardTitle className="text-xl flex items-center gap-2">
                 <FileText className="w-5 h-5 text-amber-500" />
-                <span>Edición de Metadata de la Partitura</span>
+                <span>{t('editCardTitle')}</span>
               </CardTitle>
               <CardDescription>
-                Modifica los datos principales de la obra para su catálogo, búsqueda y cálculo de sincronización.
+                {t('editCardDesc')}
               </CardDescription>
             </CardHeader>
 
             <div className="p-6 space-y-6">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Input
-                  label="Título de la Obra"
+                  label={t('workTitleLabel')}
                   required
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                 />
 
                 <Input
-                  label="Compositor"
+                  label={t('composerLabel')}
                   value={composer}
                   onChange={(e) => setComposer(e.target.value)}
-                  placeholder="ej. W. A. Mozart"
+                  placeholder={t('composerPlaceholder')}
                 />
 
                 <Input
-                  label="Referencia de Catálogo"
+                  label={t('catalogRefLabel')}
                   value={catalogRef}
                   onChange={(e) => setCatalogRef(e.target.value)}
-                  placeholder="ej. Op. 18 / BWV 1041"
+                  placeholder={t('catalogRefPlaceholder')}
                 />
 
                 <Input
-                  label="Tempo Base (BPM)"
+                  label={t('tempoLabel')}
                   type="number"
                   min={30}
                   max={320}
@@ -345,7 +349,7 @@ export default function WorkDetailPage({ params }: { params: Promise<{ locale: s
 
                 <div className="space-y-1.5">
                   <label htmlFor="keySigSelect" className="block text-sm font-medium text-slate-300">
-                    Tonalidad
+                    {t('keySignatureLabel')}
                   </label>
                   <select
                     id="keySigSelect"
@@ -355,7 +359,7 @@ export default function WorkDetailPage({ params }: { params: Promise<{ locale: s
                   >
                     {KEY_SIGNATURES.map((k) => (
                       <option key={k} value={k}>
-                        {k}
+                        {tKeys.has(k) ? tKeys(k) : k}
                       </option>
                     ))}
                   </select>
@@ -363,7 +367,7 @@ export default function WorkDetailPage({ params }: { params: Promise<{ locale: s
 
                 <div className="space-y-1.5">
                   <label htmlFor="timeSigSelect" className="block text-sm font-medium text-slate-300">
-                    Compás
+                    {t('timeSignatureLabel')}
                   </label>
                   <select
                     id="timeSigSelect"
@@ -380,7 +384,7 @@ export default function WorkDetailPage({ params }: { params: Promise<{ locale: s
                 </div>
 
                 <Input
-                  label="Total de Compases"
+                  label={t('totalMeasuresLabel')}
                   type="number"
                   min={1}
                   max={9999}
@@ -390,9 +394,9 @@ export default function WorkDetailPage({ params }: { params: Promise<{ locale: s
                 />
 
                 <div className="space-y-1.5">
-                  <label className="block text-sm font-medium text-slate-300">Páginas Registradas</label>
+                  <label className="block text-sm font-medium text-slate-300">{t('registeredPagesLabel')}</label>
                   <div className="w-full h-12 px-4 rounded-xl bg-slate-950 border border-slate-800 text-slate-300 flex items-center text-sm font-semibold">
-                    {pageCount} {pageCount === 1 ? 'página' : 'páginas'} • {systemsCount} sistemas marcados
+                    {t('pagesSummary', { pages: pageCount, systems: systemsCount })}
                   </div>
                 </div>
               </div>
@@ -402,7 +406,7 @@ export default function WorkDetailPage({ params }: { params: Promise<{ locale: s
                 <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-2">
                   <p className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
                     <Music className="w-3.5 h-3.5 text-amber-400" />
-                    Partes / Instrumentación Asignada ({parts.length}):
+                    {t('assignedParts', { count: parts.length })}
                   </p>
                   <div className="flex flex-wrap gap-2">
                     {parts.map((p) => (
@@ -417,7 +421,7 @@ export default function WorkDetailPage({ params }: { params: Promise<{ locale: s
               <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-800">
                 <Button type="submit" variant="primary" disabled={saving} className="gap-2">
                   {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                  <span>Guardar Cambios</span>
+                  <span>{t('saveChanges')}</span>
                 </Button>
               </div>
             </div>
@@ -429,17 +433,17 @@ export default function WorkDetailPage({ params }: { params: Promise<{ locale: s
           <CardHeader>
             <CardTitle className="text-base text-rose-300 flex items-center gap-2">
               <RotateCcw className="w-4 h-4 text-rose-400" />
-              <span>Gestión de Marcado y Eliminación</span>
+              <span>{t('dangerTitle')}</span>
             </CardTitle>
             <CardDescription>
-              Controla el ciclo de vida del marcado y los archivos almacenados.
+              {t('dangerDesc')}
             </CardDescription>
           </CardHeader>
           <div className="p-6 pt-0 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
             <div>
-              <p className="text-sm font-semibold text-slate-200">Restablecer Marcado de Pentagramas</p>
+              <p className="text-sm font-semibold text-slate-200">{t('resetMarkupTitle')}</p>
               <p className="text-xs text-slate-400">
-                Elimina las bounding boxes y compases guardados, pero <strong>conserva el archivo original</strong> para que puedas volver a capturar la metadata.
+                {t('resetMarkupDescBefore')} <strong>{t('resetMarkupDescBold')}</strong> {t('resetMarkupDescAfter')}
               </p>
             </div>
             <Button
@@ -451,15 +455,15 @@ export default function WorkDetailPage({ params }: { params: Promise<{ locale: s
               className="border-slate-700 text-amber-400 hover:border-amber-500 shrink-0"
             >
               {resetting ? <Loader2 className="w-4 h-4 animate-spin mr-1.5" /> : <RotateCcw className="w-4 h-4 mr-1.5" />}
-              <span>Restablecer Marcado</span>
+              <span>{t('resetMarkupButton')}</span>
             </Button>
           </div>
 
           <div className="p-6 pt-4 border-t border-rose-500/10 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
             <div>
-              <p className="text-sm font-semibold text-rose-300">Eliminar Obra Completa</p>
+              <p className="text-sm font-semibold text-rose-300">{t('deleteWorkTitle')}</p>
               <p className="text-xs text-slate-400">
-                Borra permanentemente la obra, sus versiones, metadatos y el archivo físico en el almacenamiento.
+                {t('deleteWorkDesc')}
               </p>
             </div>
             <Button
@@ -471,7 +475,7 @@ export default function WorkDetailPage({ params }: { params: Promise<{ locale: s
               className="shrink-0"
             >
               {deleting ? <Loader2 className="w-4 h-4 animate-spin mr-1.5" /> : <Trash2 className="w-4 h-4 mr-1.5" />}
-              <span>Eliminar Obra</span>
+              <span>{t('deleteWorkButton')}</span>
             </Button>
           </div>
         </Card>

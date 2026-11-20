@@ -32,11 +32,13 @@ export async function POST(req: NextRequest) {
     }
 
     const origin = getPublicOrigin(req, 3002)
+    const cookieLocale = req.cookies.get('NEXT_LOCALE')?.value
+    const locale = cookieLocale === 'en' ? 'en' : 'es'
     const stripe = getStripeServerInstance()
 
     const portalSession = await stripe.billingPortal.sessions.create({
       customer: sub.stripe_customer_id,
-      return_url: `${origin}/es/library`,
+      return_url: `${origin}/${locale}/library`,
     })
 
     return NextResponse.json({ ok: true, url: portalSession.url })

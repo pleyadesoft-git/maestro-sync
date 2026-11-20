@@ -12,45 +12,31 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const supabase = createServiceRoleClient()
-    let userId: string | null = null
-    let userEmail: string | null = null
-
     const authHeader = req.headers.get('Authorization')
     const token = authHeader?.replace(/^Bearer\s+/i, '').trim()
 
-    if (token) {
-      const {
-        data: { user },
-        error: authErr,
-      } = await supabase.auth.getUser(token)
-      if (!authErr && user) {
-        userId = user.id
-        userEmail = user.email ?? null
-      }
-    }
-
-    // Fallback seguro para cuentas recién creadas pendientes de confirmar correo
-    if (!userId && typeof body?.userId === 'string' && typeof body?.email === 'string') {
-      const { data: userLookup, error: lookupErr } = await supabase.auth.admin.getUserById(
-        body.userId
-      )
-      if (
-        !lookupErr &&
-        userLookup?.user &&
-        userLookup.user.email?.toLowerCase() === body.email.trim().toLowerCase()
-      ) {
-        userId = userLookup.user.id
-        userEmail = userLookup.user.email ?? null
-      }
-    }
-
-    if (!userId) {
+    if (!token) {
       return NextResponse.json(
-        { ok: false, error: 'Debes iniciar sesión o registrarte para canjear un código de cortesía.' },
+        { ok: false, error: 'Debes iniciar sesión para canjear un código de cortesía.' },
         { status: 401 }
       )
     }
+
+    const supabase = createServiceRoleClient()
+    const {
+      data: { user },
+      error: authErr,
+    } = await supabase.auth.getUser(token)
+
+    if (authErr || !user) {
+      return NextResponse.json(
+        { ok: false, error: 'Sesión inválida o expirada. Inicia sesión nuevamente.' },
+        { status: 401 }
+      )
+    }
+
+    const userId = user.id
+    const userEmail = user.email ?? null
 
     const result = await redeemCourtesyCode({
       code,

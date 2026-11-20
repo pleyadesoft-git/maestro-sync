@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { useTranslations } from 'next-intl'
 import { Button, Card, CardHeader, CardTitle, CardDescription, Input } from '@music-flow/ui'
 import { createBrowserClient } from '@music-flow/supabase'
 import { useAuthStore } from '@music-flow/stores'
@@ -31,39 +32,42 @@ import {
   isWebAuthnSupported,
 } from '../../../lib/webauthn-client'
 import { CopyrightNotice } from '../../components/CopyrightNotice'
+import LanguageSwitcher from '../../components/LanguageSwitcher'
 
 type AuthMode = 'login' | 'register' | 'confirm_pending'
 type SelectedTier = 'free' | 'solo' | 'band' | 'orchestra'
 
-function friendlyAuthError(message: string): string {
-  const m = (message || '').toLowerCase()
-  if (m.includes('invalid login credentials')) return 'Correo o contraseña incorrectos.'
-  if (m.includes('email not confirmed')) return 'Debes confirmar tu correo antes de entrar.'
-  if (
-    m.includes('already registered') ||
-    m.includes('already been registered') ||
-    m.includes('user already exists')
-  ) {
-    return 'Ese correo ya está registrado en MaestroSync. Inicia sesión con él.'
-  }
-  if (m.includes('password should be at least') || m.includes('password is too short')) {
-    return 'La contraseña debe tener al menos 6 caracteres.'
-  }
-  if (m.includes('rate limit') || m.includes('too many') || m.includes('over_email_send_rate_limit')) {
-    return 'Demasiados intentos de envío. Espera un minuto antes de reintentar.'
-  }
-  if (m.includes('failed to fetch') || m.includes('networkerror')) {
-    return 'No se pudo contactar con el servidor. Revisa tu conexión o la configuración de Supabase.'
-  }
-  if (m.includes('placeholder')) return 'Supabase no está configurado: completa el archivo .env.'
-  return message || 'Error inesperado de autenticación.'
-}
-
 export default function LoginPage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = React.use(params)
+  const tCommon = useTranslations('common')
+  const t = useTranslations('loginPage')
   const router = useRouter()
   const searchParams = useSearchParams()
   const { setAuth } = useAuthStore()
+
+  const friendlyAuthError = (message: string): string => {
+    const m = (message || '').toLowerCase()
+    if (m.includes('invalid login credentials')) return t('errInvalidCredentials')
+    if (m.includes('email not confirmed')) return t('errEmailNotConfirmed')
+    if (
+      m.includes('already registered') ||
+      m.includes('already been registered') ||
+      m.includes('user already exists')
+    ) {
+      return t('errAlreadyRegistered')
+    }
+    if (m.includes('password should be at least') || m.includes('password is too short')) {
+      return t('errPasswordShort')
+    }
+    if (m.includes('rate limit') || m.includes('too many') || m.includes('over_email_send_rate_limit')) {
+      return t('errRateLimit')
+    }
+    if (m.includes('failed to fetch') || m.includes('networkerror')) {
+      return t('errNetwork')
+    }
+    if (m.includes('placeholder')) return t('errSupabaseConfig')
+    return message || t('errUnexpected')
+  }
 
   const modeParam = searchParams.get('mode')
   const nextParam = searchParams.get('next')
@@ -97,13 +101,13 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
 
   const initialError =
     errorParam === 'token_expired'
-      ? 'El enlace de confirmación ha expirado o ya fue utilizado. Puedes solicitar uno nuevo.'
+      ? t('errTokenExpired')
       : null
   const initialInfo =
     confirmedParam === 'true'
-      ? '¡Correo confirmado con éxito! Ya puedes iniciar sesión.'
+      ? t('infoConfirmed')
       : reasonParam === 'auth_required'
-        ? 'Debes registrarte e iniciar sesión para unirte a una sala, iniciar como director o revisar tu biblioteca.'
+        ? t('infoAuthRequired')
         : null
 
   const [loading, setLoading] = useState(false)
@@ -127,7 +131,7 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
   const handleValidateCourtesyCode = async () => {
     const trimmed = courtesyCode.trim().toUpperCase()
     if (!trimmed) {
-      setCourtesyError('Introduce un código de cortesía para validarlo.')
+      setCourtesyError(t('courtesyRequired'))
       setValidatedCourtesy(null)
       return false
     }
@@ -143,7 +147,7 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
       const json = await res.json()
       if (!res.ok || !json.ok) {
         setValidatedCourtesy(null)
-        setCourtesyError(json.error || 'Código de cortesía inválido.')
+        setCourtesyError(json.error || t('courtesyInvalid'))
         return false
       }
       setValidatedCourtesy({
@@ -157,33 +161,44 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
       else setSelectedTier('solo')
       return true
     } catch (err: any) {
-      setCourtesyError(err?.message || 'Error al verificar el código de cortesía.')
+      setCourtesyError(err?.message || t('courtesyCheckError'))
       return false
     } finally {
       setCourtesyChecking(false)
     }
   }
 
-  // Canjear código de cortesía para el usuario recién registrado
-  const redeemCourtesyForUser = async (userId: string, userEmail: string, token?: string | null) => {
-    const codeToRedeem = validatedCourtesy?.code || courtesyCode.trim().toUpperCase()
+  // Canjear código de cortesía usando el token de sesión autenticado
+  const redeemCourtesyForUser = async (token: string | null, overrideCode?: string) => {
+    const codeToRedeem = (overrideCode || validatedCourtesy?.code || courtesyCode).trim().toUpperCase()
     if (!codeToRedeem) return { ok: true, redeemed: false }
-
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-    if (token) headers.Authorization = `Bearer ${token}`
+    if (!token) {
+      try {
+        window.localStorage.setItem('maestrosync_pending_courtesy_code', codeToRedeem)
+      } catch {
+        /* ignore storage error */
+      }
+      return { ok: true, redeemed: false }
+    }
 
     const res = await fetch('/api/courtesy/redeem', {
       method: 'POST',
-      headers,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
       body: JSON.stringify({
         code: codeToRedeem,
-        userId,
-        email: userEmail,
       }),
     })
     const json = await res.json()
     if (!res.ok || !json.ok) {
-      return { ok: false, redeemed: false, error: json.error || 'No se pudo canjear el código de cortesía.' }
+      return { ok: false, redeemed: false, error: json.error || t('courtesyRedeemError') }
+    }
+    try {
+      window.localStorage.removeItem('maestrosync_pending_courtesy_code')
+    } catch {
+      /* ignore storage error */
     }
     return { ok: true, redeemed: true, planName: json.planName }
   }
@@ -220,12 +235,23 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
 
     setAuth({ id: userId, email: userEmail }, profile)
 
+    // Si existía un código de cortesía pendiente guardado antes de confirmar correo, canjearlo ahora con sesión válida
+    let pendingCourtesy: string | null = null
+    try {
+      pendingCourtesy = window.localStorage.getItem('maestrosync_pending_courtesy_code')
+    } catch {
+      pendingCourtesy = null
+    }
+    if (pendingCourtesy && token && !options?.isNewRegistration) {
+      await redeemCourtesyForUser(token, pendingCourtesy)
+    }
+
     if (options?.isNewRegistration) {
-      // 1) Si ingresó un código de cortesía, canjearlo de inmediato
+      // 1) Si ingresó un código de cortesía, canjearlo de inmediato con token válido
       if (courtesyCode.trim()) {
-        const redeemRes = await redeemCourtesyForUser(userId, userEmail, token)
+        const redeemRes = await redeemCourtesyForUser(token)
         if (!redeemRes.ok) {
-          setErrorMessage(redeemRes.error || 'Error al activar el código de cortesía.')
+          setErrorMessage(redeemRes.error || t('courtesyActivateError'))
         }
         router.push(safeNextUrl)
         return
@@ -266,13 +292,13 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
   const handlePasskeyLogin = async () => {
     setErrorMessage(null)
     setInfoMessage(null)
-    setPasskeyStatus('Iniciando biometría (Face ID / Touch ID)…')
+    setPasskeyStatus(t('passkeyStarting'))
     setLoading(true)
 
     if (!isWebAuthnSupported()) {
       setLoading(false)
       setPasskeyStatus(null)
-      setErrorMessage('Tu navegador o dispositivo no soporta Passkeys.')
+      setErrorMessage(t('passkeyUnsupported'))
       return
     }
 
@@ -291,18 +317,17 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
         setPasskeyStatus(null)
         setLoading(false)
         setErrorMessage(
-          result.error ||
-            'No se encontró una Passkey registrada en este dispositivo para MaestroSync.'
+          result.error || t('passkeyNotFound')
         )
         return
       }
 
-      setPasskeyStatus('Acceso biométrico concedido. Entrando…')
+      setPasskeyStatus(t('passkeyGranted'))
       await finishLogin(result.user.id, result.user.email || email)
     } catch (err: any) {
       setPasskeyStatus(null)
       setLoading(false)
-      setErrorMessage(friendlyAuthError(err?.message || 'Error en autenticación WebAuthn.'))
+      setErrorMessage(friendlyAuthError(err?.message || t('passkeyWebAuthnError')))
     }
   }
 
@@ -314,12 +339,12 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
 
     const trimmedEmail = email.trim().toLowerCase()
     if (!trimmedEmail || !trimmedEmail.includes('@')) {
-      setErrorMessage('Introduce un correo electrónico válido para asociar a tu Passkey.')
+      setErrorMessage(t('passkeyEmailRequired'))
       return
     }
 
     if (!isWebAuthnSupported()) {
-      setErrorMessage('Este navegador o dispositivo no es compatible con Passkeys.')
+      setErrorMessage(t('passkeyUnsupported'))
       return
     }
 
@@ -330,7 +355,7 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
     }
 
     setLoading(true)
-    setPasskeyStatus('Configurando credencial biométrica…')
+    setPasskeyStatus(t('passkeyConfiguring'))
 
     try {
       const result = await performWebAuthnRegister({
@@ -347,18 +372,18 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
       if (!result.ok || !result.user) {
         setPasskeyStatus(null)
         setLoading(false)
-        setErrorMessage(result.error || 'No se pudo completar el registro biométrico.')
+        setErrorMessage(result.error || t('passkeyRegisterFailed'))
         return
       }
 
-      setPasskeyStatus('¡Cuenta y Passkey creadas con éxito! Entrando…')
+      setPasskeyStatus(t('passkeyCreated'))
       await finishLogin(result.user.id, result.user.email || trimmedEmail, {
         isNewRegistration: true,
       })
     } catch (err: any) {
       setPasskeyStatus(null)
       setLoading(false)
-      setErrorMessage(friendlyAuthError(err?.message || 'Error en registro con Passkey.'))
+      setErrorMessage(friendlyAuthError(err?.message || t('passkeyRegisterError')))
     }
   }
 
@@ -390,7 +415,7 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
         setLoading(false)
       }
     } catch (err: any) {
-      setErrorMessage(friendlyAuthError(err?.message || 'Error al conectar con Google'))
+      setErrorMessage(friendlyAuthError(err?.message || t('googleConnectError')))
       setLoading(false)
     }
   }
@@ -449,9 +474,7 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
 
         // Si el usuario ya estaba registrado en Supabase, identities viene vacío
         if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
-          setErrorMessage(
-            'Ese correo ya está registrado en MaestroSync. Inicia sesión con tu contraseña o con Passkey.'
-          )
+          setErrorMessage(t('errAlreadyRegisteredPasskey'))
           setMode('login')
           return
         }
@@ -464,9 +487,9 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
           return
         }
 
-        // Si la cuenta quedó creada pendiente de confirmación por correo y tenía código de cortesía, canjearlo de una vez
+        // Si la cuenta quedó creada pendiente de confirmación por correo y tenía código de cortesía, guardarlo para canjear al iniciar sesión
         if (data.user && courtesyCode.trim()) {
-          await redeemCourtesyForUser(data.user.id, data.user.email ?? email.trim(), null)
+          await redeemCourtesyForUser(null)
         }
 
         // Cuenta creada y esperando confirmación por correo
@@ -516,17 +539,17 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
       const json = await res.json()
       if (!res.ok || !json.ok) {
         setErrorMessage(
-          friendlyAuthError(json.error || 'No se pudo reenviar el correo de confirmación.')
+          friendlyAuthError(json.error || t('resendError'))
         )
       } else if (json.alreadyConfirmed) {
-        setInfoMessage('Tu cuenta ya está confirmada. Inicia sesión directamente.')
+        setInfoMessage(t('alreadyConfirmed'))
         setMode('login')
       } else {
-        setInfoMessage('Se ha reenviado el correo de confirmación. Revisa tu bandeja y spam.')
+        setInfoMessage(t('resendSuccess'))
         setResendCooldown(60)
       }
     } catch (err: any) {
-      setErrorMessage(friendlyAuthError(err?.message || 'Error de red al reenviar el correo.'))
+      setErrorMessage(friendlyAuthError(err?.message || t('resendNetworkError')))
     } finally {
       setResendLoading(false)
     }
@@ -545,59 +568,59 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
   }> = [
     {
       id: 'free',
-      name: 'Prueba Gratuita',
+      name: t('tierFreeName'),
       price: '$0',
-      period: '7 días',
-      subtitle: 'Explora la plataforma sin costo inicial.',
-      badge: '7 días gratis',
+      period: t('tierFreePeriod'),
+      subtitle: t('tierFreeSub'),
+      badge: t('tierFreeBadge'),
       icon: <Clock className="w-4 h-4 text-sky-400" />,
       features: [
-        'Acceso a biblioteca y subida de partituras',
-        'Creación y unión a salas de ensayo',
+        t('tierFreeF1'),
+        t('tierFreeF2'),
       ],
     },
     {
       id: 'solo',
       name: 'Solo',
       price: billingInterval === 'year' ? '$51' : '$5',
-      period: billingInterval === 'year' ? 'USD/año' : 'USD/mes',
-      subtitle: 'Para solistas, estudiantes y músicos independientes.',
-      badge: '1 Músico',
+      period: billingInterval === 'year' ? t('usdYear') : t('usdMonth'),
+      subtitle: t('tierSoloSub'),
+      badge: t('tierSoloBadge'),
       icon: <Music className="w-4 h-4 text-amber-400" />,
       features: [
-        'Control de reproducción propio (solista)',
-        'Subida y biblioteca ilimitada de partituras',
-        'Detección automática de compases y tempo',
-        'Pago proporcionalmente menor si te unes a una Band u Orchestra',
+        t('tierSoloF1'),
+        t('tierSoloF2'),
+        t('tierSoloF3'),
+        t('tierSoloF4'),
       ],
     },
     {
       id: 'band',
       name: 'Band',
       price: billingInterval === 'year' ? '$663' : '$65',
-      period: billingInterval === 'year' ? 'USD/año' : 'USD/mes',
-      subtitle: 'Para grupos, bandas y ensambles de 2 a 20 músicos.',
-      badge: '2 a 20 Músicos',
+      period: billingInterval === 'year' ? t('usdYear') : t('usdMonth'),
+      subtitle: t('tierBandSub'),
+      badge: t('tierBandBadge'),
       popular: true,
       icon: <Users className="w-4 h-4 text-amber-400" />,
       features: [
-        'De 2 a 20 músicos incluidos sin costos extra',
-        'Director con control de tempo y compás en vivo',
-        'Atriles sincronizados en tiempo real',
+        t('tierBandF1'),
+        t('tierBandF2'),
+        t('tierBandF3'),
       ],
     },
     {
       id: 'orchestra',
       name: 'Orchestra',
       price: billingInterval === 'year' ? '$969' : '$95',
-      period: billingInterval === 'year' ? 'USD/año' : 'USD/mes',
-      subtitle: 'Para orquestas sinfónicas, filarmónicas y grandes agrupaciones.',
-      badge: 'Ilimitado (+20)',
+      period: billingInterval === 'year' ? t('usdYear') : t('usdMonth'),
+      subtitle: t('tierOrchSub'),
+      badge: t('tierOrchBadge'),
       icon: <ShieldCheck className="w-4 h-4 text-amber-400" />,
       features: [
-        'Músicos y atriles ilimitados sin restricciones',
-        'Full score para director y particellas por atril',
-        'Sincronización milimétrica para orquesta completa',
+        t('tierOrchF1'),
+        t('tierOrchF2'),
+        t('tierOrchF3'),
       ],
     },
   ]
@@ -609,8 +632,12 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
         className="absolute top-6 left-6 flex items-center gap-2 text-sm text-slate-400 hover:text-amber-400 transition-colors"
       >
         <ArrowLeft className="w-4 h-4" />
-        <span>Volver al Inicio</span>
+        <span>{t('backHome')}</span>
       </Link>
+
+      <div className="absolute top-5 right-6">
+        <LanguageSwitcher />
+      </div>
 
       <div
         className={`w-full transition-all duration-200 ${
@@ -622,7 +649,7 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="/icons/icon-192x192.png"
-            alt="MaestroSync Logo"
+            alt={tCommon('logoAlt')}
             className="w-11 h-11 rounded-xl border border-amber-500/30 shadow-lg shadow-amber-950/30"
           />
           <span className="text-2xl font-extrabold text-slate-100 tracking-tight">
@@ -639,9 +666,9 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
               </div>
 
               <div>
-                <h2 className="text-2xl font-bold text-slate-100">¡Revisa tu bandeja de entrada!</h2>
+                <h2 className="text-2xl font-bold text-slate-100">{t('confirmTitle')}</h2>
                 <p className="mt-2 text-sm text-slate-400">
-                  Hemos enviado un enlace de confirmación a:
+                  {t('confirmSubtitle')}
                 </p>
                 <p className="text-base font-semibold text-amber-400 mt-1">{email}</p>
               </div>
@@ -650,7 +677,7 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
                 <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3.5 text-xs text-emerald-300 flex items-center gap-2 text-left">
                   <Gift className="w-4 h-4 text-emerald-400 shrink-0" />
                   <span>
-                    Tu código de cortesía <strong>{validatedCourtesy.code}</strong> ({validatedCourtesy.planName}) ha quedado activado en tu cuenta por 1 mes.
+                    {t('confirmCourtesyMsg', { code: validatedCourtesy.code, planName: validatedCourtesy.planName })}
                   </span>
                 </div>
               )}
@@ -658,12 +685,12 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
               <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-4 text-left text-xs text-slate-300 space-y-2">
                 <div className="flex items-center gap-2 font-semibold text-amber-400">
                   <Info className="w-4 h-4 shrink-0" />
-                  <span>Instrucciones para activar tu cuenta:</span>
+                  <span>{t('confirmInstructionsTitle')}</span>
                 </div>
-                <p>1. Abre tu correo y haz clic en el enlace para validar tu dirección.</p>
+                <p>{t('confirmStep1')}</p>
                 <p>
-                  2. Si no ves el mensaje en unos instantes,{' '}
-                  <strong>revisa tu carpeta de Spam o Correo no deseado</strong>.
+                  {t('confirmStep2Prefix')}{' '}
+                  <strong>{t('confirmStep2Bold')}</strong>.
                 </p>
               </div>
 
@@ -697,8 +724,8 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
                 >
                   <RefreshCw className={`w-4 h-4 mr-2 ${resendLoading ? 'animate-spin' : ''}`} />
                   {resendCooldown > 0
-                    ? `Reenviar correo en ${resendCooldown}s`
-                    : 'Reenviar correo de confirmación'}
+                    ? t('resendIn', { seconds: resendCooldown })
+                    : t('resendButton')}
                 </Button>
 
                 <Button
@@ -711,7 +738,7 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
                   }}
                   className="w-full h-11 text-sm"
                 >
-                  <span>Volver al inicio de sesión</span>
+                  <span>{t('backToLogin')}</span>
                 </Button>
               </div>
             </div>
@@ -732,13 +759,13 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
                   <div>
                     <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-amber-400 uppercase tracking-wider">
                       <Sparkles className="w-3.5 h-3.5" />
-                      Paso 1 • Elige tu Tier o Cortesía
+                      {t('step1Badge')}
                     </span>
                     <h2 className="text-lg sm:text-xl font-bold text-slate-100 mt-0.5">
-                      Planes de MaestroSync
+                      {t('plansTitle')}
                     </h2>
                     <p className="text-xs text-slate-400">
-                      Selecciona el plan con el que deseas registrarte o canjea un código de cortesía de 1 mes.
+                      {t('plansSubtitle')}
                     </p>
                   </div>
 
@@ -753,7 +780,7 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
                           : 'text-slate-400 hover:text-slate-200'
                       }`}
                     >
-                      Mensual
+                      {t('monthly')}
                     </button>
                     <button
                       type="button"
@@ -764,7 +791,7 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
                           : 'text-slate-400 hover:text-slate-200'
                       }`}
                     >
-                      <span>Anual</span>
+                      <span>{t('annual')}</span>
                       <span className="px-1.5 py-0.2 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-extrabold border border-emerald-500/30">
                         -15%
                       </span>
@@ -774,7 +801,7 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
 
                 {/* Grid de Tiers (Radio Cards accesibles) */}
                 <fieldset className="space-y-3">
-                  <legend className="sr-only">Selecciona tu plan de suscripción</legend>
+                  <legend className="sr-only">{t('selectPlanLegend')}</legend>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                     {tiersList.map((tier) => {
                       const isSelected = selectedTier === tier.id
@@ -789,7 +816,7 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
                         >
                           {tier.popular && (
                             <span className="absolute -top-2.5 right-3 px-2 py-0.5 rounded-full bg-amber-500 text-slate-950 font-extrabold text-[10px] uppercase tracking-wider">
-                              Más Popular
+                              {t('mostPopular')}
                             </span>
                           )}
 
@@ -824,7 +851,7 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
                               </span>
                               <span className="text-[11px] text-slate-400">
                                 {validatedCourtesy && isSelected && tier.id !== 'free'
-                                  ? 'Cortesía 1 Mes (30 días)'
+                                  ? t('courtesyPeriod')
                                   : tier.period}
                               </span>
                             </div>
@@ -851,24 +878,21 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
                 <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-4 flex items-start gap-2.5 text-xs text-slate-300">
                   <Info className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
                   <p className="leading-relaxed">
-                    <strong className="text-emerald-300">Descuento proporcional para usuarios Solo:</strong> si te
-                    registras como <strong>Solo</strong> y formas parte de una <strong>Band</strong> (Tier 2) o de una{' '}
-                    <strong>Orchestra</strong> (Tier 3), el pago de tu plan Solo disminuye de forma proporcional, ya que
-                    tu acceso queda cubierto por el plan del ensamble.
+                    <strong className="text-emerald-300">{t('proportionalLead')}</strong> {t('proportionalBody')}
                   </p>
                 </div>
 
-                {/* Sección de Código de Cortesía de 1 Mes */}
+                {/* Sección de Código de Cortesía de 7 Días */}
                 <div className="rounded-2xl border border-amber-500/30 bg-slate-950/90 p-4 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-xs font-bold text-amber-400">
                       <Gift className="w-4 h-4 shrink-0" />
-                      <span>¿Tienes un código de cortesía de 1 mes?</span>
+                      <span>{t('haveCourtesy')}</span>
                     </div>
                     {validatedCourtesy && (
                       <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-400 bg-emerald-500/10 px-2.5 py-0.5 rounded-full border border-emerald-500/30">
                         <CheckCircle2 className="w-3 h-3" />
-                        Código aplicado
+                        {t('codeApplied')}
                       </span>
                     )}
                   </div>
@@ -877,7 +901,7 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
                     <div className="flex-1">
                       <Input
                         type="text"
-                        placeholder="Ej. MS-SOLO-8F4K2A"
+                        placeholder={t('courtesyPlaceholder')}
                         value={courtesyCode}
                         errorMessage={courtesyError || undefined}
                         onChange={(e) => {
@@ -898,10 +922,10 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
                       {courtesyChecking ? (
                         <>
                           <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-                          Verificando…
+                          {t('checkingCode')}
                         </>
                       ) : (
-                        'Aplicar Código'
+                        t('applyCode')
                       )}
                     </Button>
                   </div>
@@ -913,9 +937,11 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
                     >
                       <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
                       <span>
-                        Código <strong>{validatedCourtesy.code}</strong> válido: desbloquea{' '}
-                        <strong>{validatedCourtesy.planName}</strong> gratis por{' '}
-                        {validatedCourtesy.durationDays} días al completar tu registro.
+                        {t('validCourtesyMsg', {
+                          code: validatedCourtesy.code,
+                          planName: validatedCourtesy.planName,
+                          days: validatedCourtesy.durationDays,
+                        })}
                       </span>
                     </div>
                   )}
@@ -934,12 +960,10 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
                   <Sparkles className="w-6 h-6" />
                 </div>
                 <CardTitle className="text-2xl">
-                  {mode === 'login' ? 'Iniciar Sesión' : 'Crear Cuenta'}
+                  {mode === 'login' ? t('loginTitle') : t('registerTitle')}
                 </CardTitle>
                 <CardDescription>
-                  {mode === 'login'
-                    ? 'Accede a tus partituras y sincroniza salas de orquesta en vivo.'
-                    : 'Completa tus datos para activar tu cuenta y el plan seleccionado.'}
+                  {mode === 'login' ? t('loginDesc') : t('registerDesc')}
                 </CardDescription>
               </CardHeader>
 
@@ -974,7 +998,7 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
                     disabled={loading}
                   >
                     <GoogleIcon className="w-5 h-5 shrink-0" />
-                    <span>Continuar con Google</span>
+                    <span>{t('continueWithGoogle')}</span>
                   </Button>
 
                   <Button
@@ -986,7 +1010,7 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
                   >
                     <Fingerprint className="w-5 h-5 text-amber-400 shrink-0 transition-transform group-hover:scale-110" />
                     <span className="font-semibold text-slate-100">
-                      Acceso Rápido con Passkey / Biometría
+                      {t('quickPasskey')}
                     </span>
                   </Button>
                   {passkeyStatus && (
@@ -995,7 +1019,7 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
                     </p>
                   )}
                   <p className="text-[11px] text-slate-500 text-center">
-                    Face ID, Touch ID o código QR (requiere Bluetooth activo en ambos dispositivos).
+                    {t('passkeyHint')}
                   </p>
                 </div>
               ) : (
@@ -1016,9 +1040,9 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
                     >
                       <Fingerprint className="w-4 h-4 shrink-0" />
                       <span className="flex flex-col items-center leading-tight">
-                        <span className="whitespace-nowrap">Con Passkey</span>
+                        <span className="whitespace-nowrap">{t('withPasskey')}</span>
                         <span className="text-[10px] font-semibold opacity-85 whitespace-nowrap">
-                          (Recomendado)
+                          {t('recommended')}
                         </span>
                       </span>
                     </button>
@@ -1035,7 +1059,7 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
                       }`}
                     >
                       <Lock className="w-4 h-4 shrink-0" />
-                      <span className="whitespace-nowrap">Con Contraseña</span>
+                      <span className="whitespace-nowrap">{t('withPassword')}</span>
                     </button>
                   </div>
 
@@ -1043,7 +1067,7 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
                     <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-slate-300 flex items-start gap-2">
                       <ShieldCheck className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
                       <span>
-                        Crea tu cuenta al instante con Face ID, Touch ID o Windows Hello. Lista para atriles sin contraseñas.
+                        {t('passkeyRegisterHint')}
                       </span>
                     </div>
                   )}
@@ -1054,7 +1078,7 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
                 <div className="relative flex items-center justify-center mb-6">
                   <div className="border-t border-slate-800 w-full" />
                   <span className="bg-slate-900 px-3 text-xs text-slate-500 uppercase tracking-wider absolute">
-                    O con Correo y Contraseña
+                    {t('orEmailPassword')}
                   </span>
                 </div>
               )}
@@ -1063,7 +1087,7 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
                 <div className="mb-5 space-y-1.5">
                   <CopyrightNotice locale={locale} />
                   <p className="text-[11px] text-slate-500">
-                    Al crear tu cuenta aceptas que eres responsable de los derechos de autor del material que subas o compartas.
+                    {t('copyrightAcceptNote')}
                   </p>
                 </div>
               )}
@@ -1073,24 +1097,24 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
                 /* Formulario Registro con Passkey */
                 <form noValidate onSubmit={handlePasskeyRegister} className="space-y-4">
                   <Input
-                    label="Nombre o Músico (Opcional)"
+                    label={t('nameOptionalLabel')}
                     type="text"
-                    placeholder="Ej. Juan Pérez"
+                    placeholder={t('namePlaceholder')}
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
                     leftIcon={<User className="w-4 h-4" />}
                   />
 
                   <Input
-                    label="Correo Electrónico"
+                    label={t('emailLabel')}
                     type="email"
                     required
                     autoComplete="email webauthn"
-                    placeholder="musico@orquesta.com"
+                    placeholder={t('emailPlaceholder')}
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     leftIcon={<Mail className="w-4 h-4" />}
-                    helperText="Se asociará a tu Passkey biométrica."
+                    helperText={t('emailPasskeyHelper')}
                   />
 
                   <Button
@@ -1102,10 +1126,10 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
                     <Fingerprint className="w-5 h-5 shrink-0" />
                     <span>
                       {loading
-                        ? 'Activando Biometría…'
+                        ? t('activatingBiometrics')
                         : validatedCourtesy
-                          ? `Crear Cuenta con ${validatedCourtesy.planName}`
-                          : 'Crear Cuenta con Passkey / Biometría'}
+                          ? t('createWithPlan', { planName: validatedCourtesy.planName })
+                          : t('createWithPasskey')}
                     </span>
                   </Button>
 
@@ -1120,9 +1144,9 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
                 <form noValidate onSubmit={handleEmailAuth} className="space-y-4">
                   {mode === 'register' && (
                     <Input
-                      label="Nombre Completo"
+                      label={t('fullNameLabel')}
                       type="text"
-                      placeholder="Ej. Juan Pérez"
+                      placeholder={t('namePlaceholder')}
                       value={fullName}
                       onChange={(e) => setFullName(e.target.value)}
                       leftIcon={<User className="w-4 h-4" />}
@@ -1130,18 +1154,18 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
                   )}
 
                   <Input
-                    label="Correo Electrónico"
+                    label={t('emailLabel')}
                     type="email"
                     required
                     autoComplete="email"
-                    placeholder="musico@orquesta.com"
+                    placeholder={t('emailPlaceholder')}
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     leftIcon={<Mail className="w-4 h-4" />}
                   />
 
                   <Input
-                    label="Contraseña"
+                    label={t('passwordLabel')}
                     type="password"
                     required
                     minLength={6}
@@ -1150,7 +1174,7 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     leftIcon={<Lock className="w-4 h-4" />}
-                    helperText={mode === 'register' ? 'Mínimo 6 caracteres' : undefined}
+                    helperText={mode === 'register' ? t('passwordMinHelper') : undefined}
                   />
 
                   <Button
@@ -1160,12 +1184,12 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
                     disabled={loading}
                   >
                     {loading
-                      ? 'Verificando…'
+                      ? t('verifying')
                       : mode === 'login'
-                        ? 'Entrar a MaestroSync'
+                        ? t('enterApp')
                         : validatedCourtesy
-                          ? `Crear cuenta con ${validatedCourtesy.planName}`
-                          : 'Crear mi cuenta con contraseña'}
+                          ? t('createWithPlan', { planName: validatedCourtesy.planName })
+                          : t('createWithPassword')}
                   </Button>
                 </form>
               )}
@@ -1173,7 +1197,7 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
               <div className="mt-5 text-center text-sm text-slate-400">
                 {mode === 'login' ? (
                   <>
-                    ¿Aún no tienes cuenta?{' '}
+                    {t('noAccount')}{' '}
                     <button
                       type="button"
                       onClick={() => {
@@ -1183,12 +1207,12 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
                       }}
                       className="text-amber-400 hover:text-amber-300 font-semibold"
                     >
-                      Ver Planes y Registrarse
+                      {t('viewPlansRegister')}
                     </button>
                   </>
                 ) : (
                   <>
-                    ¿Ya tienes cuenta?{' '}
+                    {t('haveAccount')}{' '}
                     <button
                       type="button"
                       onClick={() => {
@@ -1198,7 +1222,7 @@ export default function LoginPage({ params }: { params: Promise<{ locale: string
                       }}
                       className="text-amber-400 hover:text-amber-300 font-semibold"
                     >
-                      Inicia sesión
+                      {t('signInLink')}
                     </button>
                   </>
                 )}

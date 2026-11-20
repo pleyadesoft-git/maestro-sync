@@ -359,7 +359,7 @@ export const PLANS_CONFIG = {
 
 - Precios de introducción: Solo $5/mes, Band $65/mes (2 a 20 músicos) y Orchestra $95/mes (gran ensamble/ilimitados).
 - En todos los tiers los usuarios pueden compartir sus partituras y configuraciones con cualquier usuario.
-- Prueba gratuita de 15 días incluida en todas las cuentas.
+- Prueba gratuita de 7 días incluida en todas las cuentas.
 - La sincronización y gestión de cuotas de usuario se maneja vía Webhooks de Stripe actualizando la tabla `public.subscriptions`.
 
 ---

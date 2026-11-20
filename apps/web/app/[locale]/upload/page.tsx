@@ -3,10 +3,12 @@
 import React, { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { useTranslations } from 'next-intl'
 import { Button, Card, CardHeader, CardTitle, CardDescription, HighlightOverlay, Input, MusicScoreSheet } from '@music-flow/ui'
 import { createBrowserClient } from '@music-flow/supabase'
 import { processScoreFile, type ProcessedScoreOutput } from '@/lib/scoreProcessor'
 import { CopyrightNotice } from '../../components/CopyrightNotice'
+import LanguageSwitcher from '../../components/LanguageSwitcher'
 import type { DetectedPage, ScoreAnalysisResult } from '@music-flow/score-analysis'
 import {
   Upload,
@@ -30,17 +32,33 @@ const KEY_SIGNATURES = [
 
 const TIME_SIGNATURES = ['2/4', '3/4', '4/4', '6/8', '2/2', '3/8', '12/8']
 
-const STANDARD_INSTRUMENTS = [
-  'Violín I', 'Violín II', 'Viola', 'Violonchelo', 'Contrabajo',
-  'Flauta', 'Piccolo', 'Oboe', 'Corno Inglés', 'Clarinete', 'Clarinete Bajo', 'Fagot', 'Contrafagot',
-  'Saxofón Alto', 'Saxofón Tenor', 'Saxofón Barítono',
-  'Corno', 'Trompeta', 'Trombón', 'Tuba', 'Eufonio',
-  'Timbales', 'Percusión', 'Batería', 'Piano', 'Arpa', 'Guitarra', 'Bajo',
-  'Soprano', 'Contralto', 'Tenor', 'BajoVoz', 'Todos',
-]
+const STANDARD_INSTRUMENTS_BY_LOCALE: Record<'es' | 'en', string[]> = {
+  es: [
+    'Violín I', 'Violín II', 'Viola', 'Violonchelo', 'Contrabajo',
+    'Flauta', 'Piccolo', 'Oboe', 'Corno Inglés', 'Clarinete', 'Clarinete Bajo', 'Fagot', 'Contrafagot',
+    'Saxofón Alto', 'Saxofón Tenor', 'Saxofón Barítono',
+    'Corno', 'Trompeta', 'Trombón', 'Tuba', 'Eufonio',
+    'Timbales', 'Percusión', 'Batería', 'Piano', 'Arpa', 'Guitarra', 'Bajo',
+    'Soprano', 'Contralto', 'Tenor', 'Bajo (Voz)', 'Todos',
+  ],
+  en: [
+    'Violin I', 'Violin II', 'Viola', 'Cello', 'Double Bass',
+    'Flute', 'Piccolo', 'Oboe', 'English Horn', 'Clarinet', 'Bass Clarinet', 'Bassoon', 'Contrabassoon',
+    'Alto Saxophone', 'Tenor Saxophone', 'Baritone Saxophone',
+    'French Horn', 'Trumpet', 'Trombone', 'Tuba', 'Euphonium',
+    'Timpani', 'Percussion', 'Drums', 'Piano', 'Harp', 'Guitar', 'Bass',
+    'Soprano', 'Alto', 'Tenor', 'Bass (Voice)', 'All',
+  ],
+}
 
 export default function UploadPage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = React.use(params)
+  const t = useTranslations('uploadPage')
+  const tKeys = useTranslations('keySignatures')
+  const tSheet = useTranslations('scoreSheet')
+  const tInst = useTranslations('instruments')
+  const standardInstruments = STANDARD_INSTRUMENTS_BY_LOCALE[locale === 'en' ? 'en' : 'es']
+  const allInstrumentsLabel = tInst('all')
   const router = useRouter()
   const supabase = createBrowserClient()
 
@@ -60,7 +78,7 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
 
   // Partes e instrumentación (Punto 6)
   const [parts, setParts] = useState<Array<{ name: string; instrumentCode?: string; partOrder: number }>>([
-    { name: 'Todos', partOrder: 1, instrumentCode: 'piano' }
+    { name: allInstrumentsLabel, partOrder: 1, instrumentCode: 'piano' }
   ])
   const [selectedPartIndex, setSelectedPartIndex] = useState(0)
 
@@ -110,7 +128,7 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
       setSaveError(null)
       setIsAnalyzing(true)
       setAnalysisProgress(10)
-      setAnalysisStage('Iniciando lectura del archivo...')
+      setAnalysisStage(t('startingRead'))
 
       try {
         const output: ProcessedScoreOutput = await processScoreFile(selectedFile, (stage, prog) => {
@@ -145,19 +163,19 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
               instrumentCode: p.instrumentCode || 'violin_1',
               partOrder: idx + 1,
             }))
-          : [{ name: 'Todos', partOrder: 1, instrumentCode: 'piano' }]
+          : [{ name: allInstrumentsLabel, partOrder: 1, instrumentCode: 'piano' }]
         setParts(detectedParts)
         setSelectedPartIndex(0)
 
         if (detectedParts.length > 1) {
-          setAutoDetectedBadge(`Partitura Multi-Instrumental (${detectedParts.length} partes detectadas - ${confPct}% conf.)`)
+          setAutoDetectedBadge(t('autoDetectedMulti', { count: detectedParts.length, conf: confPct }))
         } else {
-          setAutoDetectedBadge(`Detección automática completada (${confPct}% de confianza)`)
+          setAutoDetectedBadge(t('autoDetectedSingle', { conf: confPct }))
         }
         setViewMode('uploaded')
       } catch (err: any) {
         console.warn('Error en análisis automático:', err)
-        setFileError(err?.message || 'No se pudo analizar automáticamente el archivo. Puedes ingresar los datos manualmente.')
+        setFileError(err?.message || t('analysisFallbackError'))
       } finally {
         setIsAnalyzing(false)
       }
@@ -172,7 +190,7 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
     setParts((prev) => [
       ...prev,
       {
-        name: `Parte ${prev.length + 1}`,
+        name: t('defaultPartName', { num: prev.length + 1 }),
         instrumentCode: 'violin_1',
         partOrder: prev.length + 1,
       },
@@ -250,7 +268,7 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
           bboxY: bboxY + 0.02,
           bboxW: 0.92,
           bboxH: 0.1,
-          partName: 'Todos',
+          partName: allInstrumentsLabel,
           confidence: 1.0,
         },
       ],
@@ -304,12 +322,12 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
 
     const file = fileRef.current
     if (!file) {
-      setSaveError('Selecciona el archivo de la partitura en el paso 1.')
+      setSaveError(t('selectFileStep1'))
       setStep('meta')
       return
     }
     if (!title.trim()) {
-      setSaveError('El título de la obra es obligatorio.')
+      setSaveError(t('titleRequiredError'))
       setStep('meta')
       return
     }
@@ -319,7 +337,7 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
       const { data: sessionData } = await supabase.auth.getSession()
       const token = sessionData.session?.access_token
       if (!token) {
-        setSaveError('Debes iniciar sesión para guardar la partitura en tu biblioteca.')
+        setSaveError(t('authRequiredSave'))
         return
       }
 
@@ -360,12 +378,12 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
 
       const json = await res.json()
       if (!res.ok || !json.ok) {
-        throw new Error(json.error || 'No se pudo guardar la partitura.')
+        throw new Error(json.error || t('saveError'))
       }
 
       router.push(`/${locale}/library`)
     } catch (e: any) {
-      setSaveError(e?.message || 'No se pudo guardar la partitura.')
+      setSaveError(e?.message || t('saveError'))
     } finally {
       setIsSaving(false)
     }
@@ -376,18 +394,21 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
   return (
     <main className="min-h-screen bg-slate-950 p-6 sm:p-10">
       <div className="max-w-5xl mx-auto">
-        <Link href={`/${locale}/library`} className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-amber-400 mb-6 transition-colors">
-          <ArrowLeft className="w-4 h-4" />
-          <span>Volver a la Biblioteca</span>
-        </Link>
+        <div className="flex items-center justify-between gap-4 mb-6">
+          <Link href={`/${locale}/library`} className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-amber-400 transition-colors">
+            <ArrowLeft className="w-4 h-4" />
+            <span>{t('backToLibrary')}</span>
+          </Link>
+          <LanguageSwitcher />
+        </div>
 
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold text-slate-100">Subida y Análisis de Partituras</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold text-slate-100">{t('title')}</h1>
             <p className="text-sm text-slate-400">
               {step === 'meta'
-                ? 'Paso 1: Detección Automática de Metadata y Archivo'
-                : 'Paso 2: Asistente Visual de Pentagramas y Compases'}
+                ? t('step1Subtitle')
+                : t('step2Subtitle')}
             </p>
           </div>
           {autoDetectedBadge && (
@@ -401,9 +422,9 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
         {step === 'meta' ? (
           <Card className="border-amber-500/20">
             <CardHeader>
-              <CardTitle>1. Carga Inteligente de la Obra</CardTitle>
+              <CardTitle>{t('cardTitle')}</CardTitle>
               <CardDescription>
-                Sube tu archivo PDF, Imagen o MusicXML. El sistema detectará automáticamente páginas, compases y sistemas.
+                {t('cardDesc')}
               </CardDescription>
             </CardHeader>
 
@@ -414,9 +435,9 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                     <AlertCircle className="w-5 h-5 shrink-0" />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold">Inicia sesión para guardar en tu biblioteca</p>
+                    <p className="text-sm font-semibold">{t('authTitle')}</p>
                     <p className="text-xs text-amber-400/80">
-                      Disfrutas de 15 días de prueba gratuita completa. Podrás preparar y revisar tu partitura sin restricciones.
+                      {t('authDesc')}
                     </p>
                   </div>
                 </div>
@@ -425,7 +446,7 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                     href={`/${locale}/login`}
                     className="px-3.5 py-1.5 rounded-xl bg-amber-500 text-slate-950 font-bold text-xs hover:bg-amber-400 transition-colors"
                   >
-                    Iniciar Sesión
+                    {t('signIn')}
                   </Link>
                 </div>
               </div>
@@ -445,14 +466,14 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                 let hasError = false
 
                 if (!fileName) {
-                  setFileError('Por favor selecciona una partitura en PDF, Imagen o MusicXML para continuar')
+                  setFileError(t('fileRequiredError'))
                   hasError = true
                 }
                 if (!title.trim()) {
                   hasError = true
                 }
                 if (!copyrightAccepted) {
-                  setConsentError('Debes aceptar la declaración de derechos de autor para continuar.')
+                  setConsentError(t('copyrightRequiredError'))
                   hasError = true
                 }
 
@@ -479,10 +500,10 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                   />
                   <Upload className={`w-10 h-10 mx-auto mb-3 ${fileError ? 'text-rose-400' : 'text-amber-500'}`} />
                   <p className="text-sm font-semibold text-slate-200">
-                    {fileName ? fileName : 'Haz clic o arrastra tu partitura en PDF, Imagen o MusicXML'}
+                    {fileName ? fileName : t('dropzonePrompt')}
                   </p>
                   <p className="text-xs text-slate-500 mt-1">
-                    Soporta PDF multipágina, escaneos JPG/PNG y archivos MusicXML (.xml, .musicxml)
+                    {t('dropzoneHint')}
                   </p>
                 </div>
 
@@ -515,44 +536,44 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
               {/* Form Metadata Fields */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Input
-                  label="Título de la Obra"
+                  label={t('workTitleLabel')}
                   required
-                  placeholder="ej. Sinfonía No. 5"
+                  placeholder={t('workTitlePlaceholder')}
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  helperText={autoDetectedBadge ? 'Detectado automáticamente' : undefined}
+                  helperText={autoDetectedBadge ? t('autoDetectedHelper') : undefined}
                 />
 
                 <Input
-                  label="Compositor"
-                  placeholder="ej. L. van Beethoven"
+                  label={t('composerLabel')}
+                  placeholder={t('composerPlaceholder')}
                   value={composer}
                   onChange={(e) => setComposer(e.target.value)}
-                  helperText={composer ? 'Detectado automáticamente' : undefined}
+                  helperText={composer ? t('autoDetectedHelper') : undefined}
                 />
 
                 <Input
-                  label="Referencia de Catálogo"
-                  placeholder="ej. Op. 67 / BWV 1007"
+                  label={t('catalogRefLabel')}
+                  placeholder={t('catalogRefPlaceholder')}
                   value={catalogRef}
                   onChange={(e) => setCatalogRef(e.target.value)}
-                  helperText="Opus, BWV, K. u otro catálogo"
+                  helperText={t('catalogRefHelper')}
                 />
 
                 <Input
-                  label="Tempo Base (BPM)"
+                  label={t('tempoLabel')}
                   type="number"
                   min={30}
                   max={320}
                   required
                   value={tempo}
                   onChange={(e) => setTempo(Number(e.target.value))}
-                  helperText="Velocidad metronómica"
+                  helperText={t('tempoHelper')}
                 />
 
                 <div className="space-y-1.5">
                   <label htmlFor="keySignature" className="block text-sm font-medium text-slate-300">
-                    Tonalidad
+                    {t('keySignatureLabel')}
                   </label>
                   <select
                     id="keySignature"
@@ -562,7 +583,7 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                   >
                     {KEY_SIGNATURES.map((k) => (
                       <option key={k} value={k}>
-                        {k}
+                        {tKeys.has(k) ? tKeys(k) : k}
                       </option>
                     ))}
                   </select>
@@ -570,7 +591,7 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
 
                 <div className="space-y-1.5">
                   <label htmlFor="timeSignature" className="block text-sm font-medium text-slate-300">
-                    Compás
+                    {t('timeSignatureLabel')}
                   </label>
                   <select
                     id="timeSignature"
@@ -587,20 +608,20 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                 </div>
 
                 <Input
-                  label="Total de Compases"
+                  label={t('totalMeasuresLabel')}
                   type="number"
                   min={1}
                   max={9999}
                   required
                   value={totalMeasures}
                   onChange={(e) => setTotalMeasures(Number(e.target.value))}
-                  helperText="Compases de la obra completa"
+                  helperText={t('totalMeasuresHelper')}
                 />
 
                 <div className="space-y-1.5">
-                  <label className="block text-sm font-medium text-slate-300">Páginas Detectadas</label>
+                  <label className="block text-sm font-medium text-slate-300">{t('detectedPagesLabel')}</label>
                   <div className="w-full h-12 px-4 rounded-xl bg-slate-950 border border-slate-800 text-slate-300 flex items-center text-sm font-semibold">
-                    {Math.max(1, pagesData.length || pageImages.length || 1)} {pagesData.length === 1 ? 'página' : 'páginas'}
+                    {t('pagesCount', { count: Math.max(1, pagesData.length || pageImages.length || 1) })}
                   </div>
                 </div>
               </div>
@@ -611,19 +632,19 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                   <div>
                     <h3 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
                       <Music className="w-4 h-4 text-amber-400" />
-                      Particellas e Instrumentación
+                      {t('partsHeading')}
                       {parts.length > 1 ? (
                         <span className="px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[10px] font-bold">
-                          Multi-Instrumental ({parts.length} partes)
+                          {t('multiInstrumentalBadge', { count: parts.length })}
                         </span>
                       ) : (
                         <span className="px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 text-[10px] font-medium">
-                          Solista / Unificada
+                          {t('soloUnifiedBadge')}
                         </span>
                       )}
                     </h3>
                     <p className="text-xs text-slate-400 mt-0.5">
-                      Cada músico en la sala de ensayo seleccionará su instrumento y el sistema resaltará exclusivamente su propio pentagrama.
+                      {t('partsDesc')}
                     </p>
                   </div>
                   <Button
@@ -634,7 +655,7 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                     className="self-start sm:self-auto text-amber-400 hover:text-amber-300"
                   >
                     <Plus className="w-3.5 h-3.5 mr-1" />
-                    Agregar Parte
+                    {t('addPart')}
                   </Button>
                 </div>
 
@@ -653,7 +674,7 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                           type="text"
                           value={part.name}
                           onChange={(e) => handleUpdatePart(idx, { name: e.target.value })}
-                          placeholder="Nombre de la parte (ej. Violín I)"
+                          placeholder={t('partNamePlaceholder')}
                           className="w-full h-9 px-3 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 text-xs focus:outline-none focus:border-amber-500"
                         />
                       </div>
@@ -661,14 +682,14 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                       <div className="w-full sm:w-48">
                         <select
                           value={
-                            STANDARD_INSTRUMENTS.find(
+                            standardInstruments.find(
                               (si) => si.toLowerCase() === (part.instrumentCode || '').toLowerCase()
-                            ) || 'Todos'
+                            ) || allInstrumentsLabel
                           }
                           onChange={(e) => handleUpdatePart(idx, { instrumentCode: e.target.value })}
                           className="w-full h-9 px-2.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 text-xs focus:outline-none focus:border-amber-500"
                         >
-                          {STANDARD_INSTRUMENTS.map((inst) => (
+                          {standardInstruments.map((inst) => (
                             <option key={inst} value={inst}>
                               {inst}
                             </option>
@@ -681,7 +702,7 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                           type="button"
                           onClick={() => handleRemovePart(idx)}
                           className="p-2 text-slate-500 hover:text-rose-400 rounded-lg hover:bg-slate-900 transition-colors self-end sm:self-auto"
-                          title="Eliminar parte"
+                          title={t('deletePartTitle')}
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -712,8 +733,7 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                     className="accent-amber-500 w-4 h-4 mt-0.5 shrink-0"
                   />
                   <span>
-                    Declaro que tengo los derechos o permisos necesarios para usar y compartir esta partitura, y asumo
-                    la responsabilidad total sobre su uso.
+                    {t('copyrightDeclaration')}
                   </span>
                 </label>
                 {consentError && (
@@ -725,7 +745,7 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
               </div>
 
               <Button type="submit" variant="primary" className="w-full" disabled={isAnalyzing}>
-                Continuar al Asistente Visual de Pentagramas
+                {t('continueToVisual')}
               </Button>
             </form>
           </Card>
@@ -737,7 +757,7 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
               <div className="w-full flex items-center justify-between text-xs text-slate-400">
                 <div className="flex items-center gap-3">
                   <span className="font-semibold text-slate-200">
-                    Página {currentPage} de {Math.max(1, pagesData.length || pageImages.length || 1)}
+                    {t('pageOf', { current: currentPage, total: Math.max(1, pagesData.length || pageImages.length || 1) })}
                   </span>
                   {pagesData.length > 1 && (
                     <div className="flex items-center gap-1">
@@ -769,7 +789,7 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                       viewMode === 'uploaded' ? 'bg-amber-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >
-                    Original
+                    {t('viewOriginal')}
                   </button>
                   <button
                     type="button"
@@ -778,7 +798,7 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                       viewMode === 'digital' ? 'bg-amber-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >
-                    Notación SVG
+                    {t('viewSvg')}
                   </button>
                 </div>
               </div>
@@ -788,7 +808,7 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                 <div className="w-full flex flex-wrap items-center gap-2 p-2 rounded-xl bg-slate-950 border border-slate-800/80">
                   <span className="text-xs font-semibold text-slate-400 flex items-center gap-1 mr-1">
                     <Music className="w-3.5 h-3.5 text-amber-400" />
-                    Pentagrama a previsualizar:
+                    {t('previewStaffLabel')}
                   </span>
                   {parts.map((part, idx) => (
                     <button
@@ -814,16 +834,29 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={activePageImage}
-                      alt={`Página ${currentPage}`}
+                      alt={t('pageAlt', { page: currentPage })}
                       className="max-w-full max-h-full object-contain pointer-events-none select-none"
                     />
                   </div>
                 ) : (
                   <MusicScoreSheet
-                    title={title || 'Partitura en Edición'}
-                    composer={composer || 'Compositor'}
+                    title={title || t('scoreInProgress')}
+                    composer={composer || t('composerLabel')}
                     timeSignature={timeSignature}
-                    selectedInstrument={parts[selectedPartIndex]?.name || 'Todos'}
+                    selectedInstrument={parts[selectedPartIndex]?.name || allInstrumentsLabel}
+                    labels={{
+                      facsimile: tSheet('facsimile'),
+                      digitalSvg: tSheet('digitalSvg'),
+                      activePart: tSheet('activePart'),
+                      loadingScore: tSheet('loadingScore'),
+                      prevPageAria: tSheet('prevPageAria'),
+                      nextPageAria: tSheet('nextPageAria'),
+                      pageShort: tSheet('pageShort'),
+                      showingSvg: tSheet('showingSvg'),
+                      measureWord: tSheet('measureWord'),
+                      measurePrefix: tSheet('measurePrefix'),
+                      pageWord: locale === 'en' ? 'Page' : 'Página',
+                    }}
                   />
                 )}
 
@@ -851,7 +884,7 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                         bboxY={highlightBox.bboxY}
                         bboxW={highlightBox.bboxW}
                         bboxH={highlightBox.bboxH}
-                        label={`${parts[selectedPartIndex]?.name || 'Sistema #' + sys.systemOrder} (c.${sys.measureStart}-${sys.measureStart + sys.measureCount - 1})`}
+                        label={`${parts[selectedPartIndex]?.name || t('systemFallbackLabel', { order: sys.systemOrder })} (${t('measureShort', { num: sys.measureStart })}-${sys.measureStart + sys.measureCount - 1})`}
                       />
                       {/* Indicador discreto de compases dentro del sistema */}
                       {sys.measures && sys.measures.map((m) => (
@@ -863,7 +896,7 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                           }}
                           className="absolute -translate-y-full px-1 py-0.5 rounded bg-slate-950/80 border border-amber-500/40 text-[9px] font-mono text-amber-300 font-bold pointer-events-none z-10"
                         >
-                          c.{m.measureNumber}
+                          {t('measureShort', { num: m.measureNumber })}
                         </div>
                       ))}
                     </React.Fragment>
@@ -872,7 +905,7 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
               </div>
 
               <p className="text-[11px] text-slate-500 text-center w-full">
-                Cada renglón enmarca el pentagrama específico del instrumento seleccionado para garantizar el seguimiento individual sin lag.
+                {t('visualHint')}
               </p>
             </div>
 
@@ -881,13 +914,13 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base flex items-center justify-between">
-                    <span>Sistemas en Pág. {currentPage} ({currentSystems.length})</span>
+                    <span>{t('systemsOnPage', { page: currentPage, count: currentSystems.length })}</span>
                     <Button onClick={handleAddSystem} variant="ghost" size="sm">
                       <Plus className="w-3.5 h-3.5 mr-1" />
-                      Agregar
+                      {t('addSystem')}
                     </Button>
                   </CardTitle>
-                  <CardDescription>Ajusta el compás de inicio y la alineación por pentagrama.</CardDescription>
+                  <CardDescription>{t('systemsDesc')}</CardDescription>
                 </CardHeader>
 
                 <div className="space-y-3 max-h-[340px] overflow-y-auto pr-1">
@@ -906,9 +939,9 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                         <div className="flex items-center justify-between font-semibold text-amber-400">
                           <span className="flex items-center gap-1.5">
                             <Layers className="w-3 h-3 text-amber-400" />
-                            <span>Sistema #{sys.systemOrder}</span>
+                            <span>{t('systemFallbackLabel', { order: sys.systemOrder })}</span>
                             <span className="text-[10px] text-slate-400 font-normal">
-                              ({sys.confidence >= 0.8 ? 'Alta confianza' : 'Revisión sugerida'})
+                              ({sys.confidence >= 0.8 ? t('highConfidence') : t('reviewSuggested')})
                             </span>
                           </span>
                           <button
@@ -925,7 +958,7 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
 
                         <div className="grid grid-cols-2 gap-2">
                           <div>
-                            <label className="text-[10px] text-slate-500">Compás Inicio</label>
+                            <label className="text-[10px] text-slate-500">{t('measureStartLabel')}</label>
                             <input
                               type="number"
                               min={1}
@@ -938,7 +971,7 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                             />
                           </div>
                           <div>
-                            <label className="text-[10px] text-slate-500">Cant. Compases</label>
+                            <label className="text-[10px] text-slate-500">{t('measureCountLabel')}</label>
                             <input
                               type="number"
                               min={1}
@@ -954,7 +987,7 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
 
                         {/* Alineación vertical del sistema */}
                         <div className="pt-1 flex items-center justify-between text-[10px] text-slate-500 border-t border-slate-800/60">
-                          <span>Alineación sistema:</span>
+                          <span>{t('systemAlignment')}</span>
                           <div className="flex items-center gap-1">
                             <button
                               type="button"
@@ -983,7 +1016,7 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                         {parts.length > 1 && (
                           <div className="pt-1 flex items-center justify-between text-[10px] text-amber-400/90 border-t border-slate-800/40">
                             <span className="truncate max-w-[120px]">
-                              Pentagrama ({parts[selectedPartIndex]?.name}):
+                              {t('staffLabel', { name: parts[selectedPartIndex]?.name || '' })}
                             </span>
                             <div className="flex items-center gap-1">
                               <button
@@ -993,7 +1026,7 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                                   handleUpdateStaffY(sys.systemOrder, selectedPartIndex, -0.01)
                                 }}
                                 className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 hover:bg-slate-700"
-                                title="Subir pentagrama"
+                                title={t('moveStaffUp')}
                               >
                                 ▲
                               </button>
@@ -1004,7 +1037,7 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
                                   handleUpdateStaffY(sys.systemOrder, selectedPartIndex, 0.01)
                                 }}
                                 className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 hover:bg-slate-700"
-                                title="Bajar pentagrama"
+                                title={t('moveStaffDown')}
                               >
                                 ▼
                               </button>
@@ -1025,18 +1058,18 @@ export default function UploadPage({ params }: { params: Promise<{ locale: strin
 
                 <div className="pt-4 border-t border-slate-800 flex gap-2">
                   <Button onClick={() => setStep('meta')} variant="outline" className="w-1/2" disabled={isSaving}>
-                    Atrás
+                    {t('back')}
                   </Button>
                   <Button onClick={() => void handleSaveScore()} variant="primary" className="w-1/2" disabled={isSaving}>
                     {isSaving ? (
                       <>
                         <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-                        Guardando…
+                        {t('saving')}
                       </>
                     ) : (
                       <>
                         <Check className="w-4 h-4 mr-1" />
-                        Guardar Obra
+                        {t('saveWork')}
                       </>
                     )}
                   </Button>

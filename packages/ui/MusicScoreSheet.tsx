@@ -27,6 +27,20 @@ export interface ScoreSystemData {
   instrument: string
 }
 
+export interface MusicScoreSheetLabels {
+  facsimile?: string
+  digitalSvg?: string
+  activePart?: string
+  loadingScore?: string
+  prevPageAria?: string
+  nextPageAria?: string
+  pageShort?: string
+  showingSvg?: string
+  measureWord?: string
+  measurePrefix?: string
+  pageWord?: string
+}
+
 export interface MusicScoreSheetProps {
   className?: string
   title?: string
@@ -46,6 +60,7 @@ export interface MusicScoreSheetProps {
   onViewModeChange?: (mode: 'facsimile' | 'digital') => void
   deviceLayout?: 'mobile' | 'tablet' | 'desktop'
   measureIndicatorStyle?: MeasureIndicatorStyle | 'none'
+  labels?: MusicScoreSheetLabels
 }
 
 interface NormalizedBBox {
@@ -114,7 +129,21 @@ export function MusicScoreSheet({
   onViewModeChange,
   deviceLayout = 'tablet',
   measureIndicatorStyle = 'subtle',
+  labels,
 }: MusicScoreSheetProps) {
+  const uiLabels = {
+    facsimile: labels?.facsimile ?? 'Facsímil',
+    digitalSvg: labels?.digitalSvg ?? 'Digital SVG',
+    activePart: labels?.activePart ?? 'Parte activa:',
+    loadingScore: labels?.loadingScore ?? 'Cargando partitura...',
+    prevPageAria: labels?.prevPageAria ?? 'Página anterior',
+    nextPageAria: labels?.nextPageAria ?? 'Página siguiente',
+    pageShort: labels?.pageShort ?? 'Pág.',
+    showingSvg: labels?.showingSvg ?? 'Mostrando notación digital SVG interactiva',
+    measureWord: labels?.measureWord ?? 'Compás',
+    measurePrefix: labels?.measurePrefix ?? 'c.',
+    pageWord: labels?.pageWord ?? 'Página',
+  }
   const stavesHostRef = useRef<HTMLDivElement>(null)
   const systemElsRef = useRef<Array<HTMLDivElement | null>>([])
   const [highlightBox, setHighlightBox] = useState<NormalizedBBox | null>(null)
@@ -272,7 +301,7 @@ export function MusicScoreSheet({
   const overlayLabel =
     highlightLabel ??
     (selectedInstrument && activeSystemIndex != null
-      ? `${selectedInstrument} — Compás ${activeMeasure ?? 1}`
+      ? `${selectedInstrument} — ${uiLabels.measureWord} ${activeMeasure ?? 1}`
       : undefined)
 
   return (
@@ -315,7 +344,7 @@ export function MusicScoreSheet({
                     : 'text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed'
                 )}
               >
-                Facsímil
+                {uiLabels.facsimile}
               </button>
               <button
                 type="button"
@@ -330,7 +359,7 @@ export function MusicScoreSheet({
                     : 'text-slate-400 hover:text-slate-200'
                 )}
               >
-                Digital SVG
+                {uiLabels.digitalSvg}
               </button>
             </div>
           )}
@@ -341,7 +370,7 @@ export function MusicScoreSheet({
             </div>
             {selectedInstrument && (
               <span className="text-[10px] text-slate-400 font-mono">
-                Parte activa: <strong className="text-amber-400">{selectedInstrument}</strong>
+                {uiLabels.activePart} <strong className="text-amber-400">{selectedInstrument}</strong>
               </span>
             )}
           </div>
@@ -369,7 +398,7 @@ export function MusicScoreSheet({
             {imageLoading && (
               <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/90 text-amber-400 z-10 p-4">
                 <Loader2 className="w-8 h-8 animate-spin mb-2" />
-                <span className="text-xs font-mono text-slate-300">Cargando partitura...</span>
+                <span className="text-xs font-mono text-slate-300">{uiLabels.loadingScore}</span>
               </div>
             )}
 
@@ -377,7 +406,7 @@ export function MusicScoreSheet({
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={currentPage?.imageUrl || ''}
-              alt={`${title} - Página ${currentPage?.pageNumber ?? 1}`}
+              alt={`${title} - ${uiLabels.pageWord} ${currentPage?.pageNumber ?? 1}`}
               onLoad={(e) => {
                 setImageLoading(false)
                 const img = e.currentTarget
@@ -410,6 +439,7 @@ export function MusicScoreSheet({
                     bboxW={activeMeasureBox.bboxW}
                     bboxH={activeMeasureBox.bboxH}
                     measureNumber={activeMeasure ?? activeSystemOnCurrentPage.measureStart}
+                    measurePrefix={uiLabels.measurePrefix}
                     style={measureIndicatorStyle}
                   />
                 )}
@@ -423,19 +453,19 @@ export function MusicScoreSheet({
                 type="button"
                 onClick={() => handlePageChange(realCurrentPageNumber - 1)}
                 disabled={realCurrentPageNumber <= 1}
-                aria-label="Página anterior"
+                aria-label={uiLabels.prevPageAria}
                 className="p-1 rounded-full hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed text-slate-400 hover:text-amber-400 transition-colors"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
               <span className="font-mono text-xs">
-                Pág. <strong className="text-amber-400">{realCurrentPageNumber}</strong> / {pages.length}
+                {uiLabels.pageShort} <strong className="text-amber-400">{realCurrentPageNumber}</strong> / {pages.length}
               </span>
               <button
                 type="button"
                 onClick={() => handlePageChange(realCurrentPageNumber + 1)}
                 disabled={realCurrentPageNumber >= pages.length}
-                aria-label="Página siguiente"
+                aria-label={uiLabels.nextPageAria}
                 className="p-1 rounded-full hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed text-slate-400 hover:text-amber-400 transition-colors"
               >
                 <ChevronRight className="w-4 h-4" />
@@ -452,7 +482,7 @@ export function MusicScoreSheet({
           {imageError && hasRealPages && (
             <div className="mx-auto mb-1 inline-flex items-center gap-2 bg-amber-950/60 border border-amber-500/30 px-3 py-1 rounded-full text-[11px] text-amber-300">
               <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-              <span>Mostrando notación digital SVG interactiva</span>
+              <span>{uiLabels.showingSvg}</span>
             </div>
           )}
         {/* System 1: Violín I (The iconic opening motif) */}

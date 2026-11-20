@@ -17,10 +17,33 @@ export interface ProcessedScoreOutput {
  * Procesa un archivo subido (PDF, Imagen o MusicXML) extrayendo automáticamente
  * su metadata, páginas renderizadas y bounding boxes de pentagramas y compases.
  */
+function isEnglishLocale(): boolean {
+  return (
+    typeof document !== 'undefined' &&
+    document.documentElement.lang.toLowerCase().startsWith('en')
+  )
+}
+
 export async function processScoreFile(
   file: File,
   onProgress?: (stage: string, progress: number) => void
 ): Promise<ProcessedScoreOutput> {
+  const isEn = isEnglishLocale()
+  const msg = {
+    analyzingXml: isEn ? 'Analyzing MusicXML structure...' : 'Analizando estructura MusicXML...',
+    done: isEn ? 'Analysis complete' : 'Análisis completado',
+    processingImage: isEn ? 'Processing image...' : 'Procesando imagen...',
+    imageLoadError: isEn ? 'Could not load the score image.' : 'No se pudo cargar la imagen de la partitura.',
+    canvasError: isEn ? 'Could not initialize image context.' : 'No se pudo inicializar el contexto de imagen.',
+    detectingStaves: isEn ? 'Detecting staves and measures...' : 'Detectando pentagramas y compases...',
+    initPdf: isEn ? 'Initializing PDF engine...' : 'Inicializando motor PDF...',
+    processingPage: (p: number, total: number) =>
+      isEn ? `Processing page ${p} of ${total}...` : `Procesando página ${p} de ${total}...`,
+    unsupported: isEn
+      ? 'Unsupported file format. Use PDF, Image (PNG/JPG), or MusicXML.'
+      : 'Formato de archivo no soportado. Usa PDF, Imagen (PNG/JPG) o MusicXML.',
+  }
+
   const fileName = file.name.toLowerCase()
   const isMusicXml = fileName.endsWith('.musicxml') || fileName.endsWith('.xml')
   const isPdf = file.type === 'application/pdf' || fileName.endsWith('.pdf')
@@ -28,10 +51,10 @@ export async function processScoreFile(
 
   // 1. MUSICXML: Análisis exacto y directo
   if (isMusicXml) {
-    onProgress?.('Analizando estructura MusicXML...', 40)
+    onProgress?.(msg.analyzingXml, 40)
     const xmlContent = await file.text()
     const analysis = parseMusicXml(xmlContent)
-    onProgress?.('Análisis completado', 100)
+    onProgress?.(msg.done, 100)
 
     return {
       analysis,
@@ -42,13 +65,13 @@ export async function processScoreFile(
 
   // 2. IMAGEN: Renderizado en canvas y extracción visual
   if (isImage) {
-    onProgress?.('Procesando imagen...', 30)
+    onProgress?.(msg.processingImage, 30)
     const imgUrl = URL.createObjectURL(file)
 
     const img = await new Promise<HTMLImageElement>((resolve, reject) => {
       const el = new Image()
       el.onload = () => resolve(el)
-      el.onerror = (e) => reject(new Error('No se pudo cargar la imagen de la partitura.'))
+      el.onerror = () => reject(new Error(msg.imageLoadError))
       el.src = imgUrl
     })
 
@@ -56,14 +79,14 @@ export async function processScoreFile(
     canvas.width = img.naturalWidth || img.width
     canvas.height = img.naturalHeight || img.height
     const ctx = canvas.getContext('2d', { willReadFrequently: true })
-    if (!ctx) throw new Error('No se pudo inicializar el contexto de imagen.')
+    if (!ctx) throw new Error(msg.canvasError)
 
     ctx.drawImage(img, 0, 0)
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
     const dataUrl = canvas.toDataURL('image/png')
     URL.revokeObjectURL(imgUrl)
 
-    onProgress?.('Detectando pentagramas y compases...', 70)
+    onProgress?.(msg.detectingStaves, 70)
     const pixelBuf: PixelBuffer = {
       width: canvas.width,
       height: canvas.height,
@@ -79,7 +102,7 @@ export async function processScoreFile(
       pageCount: 1,
     })
 
-    onProgress?.('Análisis completado', 100)
+    onProgress?.(msg.done, 100)
 
     return {
       analysis,
@@ -97,7 +120,7 @@ export async function processScoreFile(
 
   // 3. PDF: Renderizado multipágina con pdfjs-dist y detección heurística
   if (isPdf) {
-    onProgress?.('Inicializando motor PDF...', 10)
+    onProgress?.(msg.initPdf, 10)
     const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf')
 
     try {
@@ -144,13 +167,13 @@ export async function processScoreFile(
         }
       })
     } catch (err) {
-      console.warn('No se pudo extraer texto del PDF:', err)
+      console.warn('Could not extract PDF text:', err)
     }
 
     // Renderizar las páginas (máximo 8 páginas para análisis rápido en cliente)
     const pagesToAnalyze = Math.min(numPages, 8)
     for (let p = 1; p <= pagesToAnalyze; p++) {
-      onProgress?.(`Procesando página ${p} de ${numPages}...`, 20 + Math.floor((p / pagesToAnalyze) * 60))
+      onProgress?.(msg.processingPage(p, numPages), 20 + Math.floor((p / pagesToAnalyze) * 60))
       const page = await pdf.getPage(p)
       const viewport = page.getViewport({ scale: 1.5 })
 
@@ -179,7 +202,7 @@ export async function processScoreFile(
       }
     }
 
-    onProgress?.('Detectando pentagramas y compases...', 85)
+    onProgress?.(msg.detectingStaves, 85)
     const analysis = analyzeScore({
       fileType: 'pdf',
       pagesBuffers,
@@ -189,7 +212,7 @@ export async function processScoreFile(
       pageCount: numPages,
     })
 
-    onProgress?.('Análisis completado', 100)
+    onProgress?.(msg.done, 100)
 
     return {
       analysis,
@@ -198,5 +221,5 @@ export async function processScoreFile(
     }
   }
 
-  throw new Error('Formato de archivo no soportado. Usa PDF, Imagen (PNG/JPG) o MusicXML.')
+  throw new Error(msg.unsupported)
 }

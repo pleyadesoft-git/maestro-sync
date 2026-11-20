@@ -101,7 +101,7 @@ export async function POST(req: NextRequest) {
         counter: targetPasskey.counter,
         transports: targetPasskey.transports as any,
       },
-      requireUserVerification: true,
+      requireUserVerification: false,
     })
 
     if (!verification.verified) {
