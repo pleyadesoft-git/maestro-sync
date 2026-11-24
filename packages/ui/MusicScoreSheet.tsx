@@ -40,6 +40,7 @@ export interface MusicScoreSheetLabels {
   measureWord?: string
   measurePrefix?: string
   pageWord?: string
+  requiresMusicXml?: string
 }
 
 export interface MusicScoreSheetProps {
@@ -99,11 +100,11 @@ function staffCenteredBox(row: DOMRect, host: DOMRect): NormalizedBBox {
 
 export function MusicScoreSheet({
   className,
-  title = 'Sinfonía No. 5 en Do menor',
-  composer = 'Ludwig van Beethoven, Op. 67',
-  subtitle = 'I. Allegro con brio',
-  tempoText = 'Allegro con brio (♩ = 108)',
-  timeSignature = '2/4',
+  title = '',
+  composer = '',
+  subtitle = '',
+  tempoText,
+  timeSignature = '4/4',
   keySignature,
   tempoBpm,
   totalMeasures,
@@ -136,6 +137,7 @@ export function MusicScoreSheet({
     measureWord: labels?.measureWord ?? 'Compás',
     measurePrefix: labels?.measurePrefix ?? 'c.',
     pageWord: labels?.pageWord ?? 'Página',
+    requiresMusicXml: labels?.requiresMusicXml ?? 'Requiere archivo MusicXML (.musicxml / .mxl)',
   }
   const stavesHostRef = useRef<HTMLDivElement>(null)
   const systemElsRef = useRef<Array<HTMLDivElement | null>>([])
@@ -143,12 +145,31 @@ export function MusicScoreSheet({
   const pageContainerRef = useRef<HTMLDivElement>(null)
 
   const hasRealPages = Boolean(pages && pages.length > 0 && pages.some((p) => Boolean(p.imageUrl)))
-  const [internalViewMode, setInternalViewMode] = useState<'facsimile' | 'digital'>(
-    hasRealPages ? 'facsimile' : 'digital'
+  const hasMusicXml = Boolean(
+    (musicXml && musicXml.trim().length > 0) || (musicXmlUrl && musicXmlUrl.trim().length > 0)
   )
+
+  const [internalViewMode, setInternalViewMode] = useState<'facsimile' | 'digital'>(
+    hasMusicXml ? 'digital' : hasRealPages ? 'facsimile' : 'digital'
+  )
+
+  // Sincronizar el modo por defecto cuando llegan asíncronamente las páginas PDF o el archivo MusicXML
+  useEffect(() => {
+    if (propViewMode) return
+    if (hasMusicXml) {
+      setInternalViewMode('digital')
+      onViewModeChange?.('digital')
+    } else if (hasRealPages) {
+      setInternalViewMode('facsimile')
+      onViewModeChange?.('facsimile')
+    }
+  }, [hasMusicXml, hasRealPages, propViewMode])
+
   const currentViewMode = propViewMode ?? internalViewMode
   const [imageLoading, setImageLoading] = useState(true)
   const [imageError, setImageError] = useState(false)
+
+  const effectiveTempoLabel = tempoText || (tempoBpm && tempoBpm > 0 ? `♩ = ${tempoBpm}` : null)
 
   const [internalPageNumber, setInternalPageNumber] = useState(1)
   const realCurrentPageNumber = activePageNumber ?? internalPageNumber
@@ -158,12 +179,11 @@ export function MusicScoreSheet({
     setImageLoading(true)
     setImageError(false)
 
-    // Timeout de seguridad: si la imagen de la partitura tarda más de 6s o se bloquea,
-    // se conmuta automáticamente al render digital OSMD sin dejar al usuario bloqueado.
+    // Timeout de seguridad si la imagen de la partitura tarda más de 6s
     const timer = setTimeout(() => {
       setImageLoading((prev) => {
         if (prev) {
-          console.warn('[MusicScoreSheet] Timeout al cargar imagen de partitura, usando notación digital.')
+          console.warn('[MusicScoreSheet] Timeout al cargar imagen de partitura.')
           setImageError(true)
           return false
         }
@@ -178,7 +198,7 @@ export function MusicScoreSheet({
     hasRealPages &&
     currentPage?.imageUrl &&
     !imageError &&
-    currentViewMode === 'facsimile'
+    (currentViewMode === 'facsimile' || !hasMusicXml)
   )
 
   const handlePageChange = (newPage: number) => {
@@ -334,7 +354,7 @@ export function MusicScoreSheet({
                 disabled={imageError}
                 className={cn(
                   'px-2.5 py-1 rounded-md transition-colors font-medium text-[11px] sm:text-xs',
-                  currentViewMode === 'facsimile' && !imageError
+                  canShowRealPages
                     ? 'bg-amber-500 text-slate-950 font-bold shadow'
                     : 'text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed'
                 )}
@@ -344,14 +364,17 @@ export function MusicScoreSheet({
               <button
                 type="button"
                 onClick={() => {
+                  if (!hasMusicXml) return
                   setInternalViewMode('digital')
                   onViewModeChange?.('digital')
                 }}
+                disabled={!hasMusicXml}
+                title={!hasMusicXml ? uiLabels.requiresMusicXml : undefined}
                 className={cn(
                   'px-2.5 py-1 rounded-md transition-colors font-medium text-[11px] sm:text-xs',
-                  currentViewMode === 'digital' || imageError
+                  !canShowRealPages && hasMusicXml
                     ? 'bg-amber-500 text-slate-950 font-bold shadow'
-                    : 'text-slate-400 hover:text-slate-200'
+                    : 'text-slate-400 hover:text-slate-200 disabled:opacity-35 disabled:cursor-not-allowed'
                 )}
               >
                 {uiLabels.digitalSvg}
@@ -360,9 +383,11 @@ export function MusicScoreSheet({
           )}
 
           <div className="flex items-center gap-2">
-            <div className="flex items-center gap-2 bg-slate-900/90 border border-slate-800 px-2.5 py-1 rounded-md text-[10px] sm:text-[11px]">
-              <span className="font-serif italic font-semibold text-amber-400">{tempoText}</span>
-            </div>
+            {effectiveTempoLabel && (
+              <div className="flex items-center gap-2 bg-slate-900/90 border border-slate-800 px-2.5 py-1 rounded-md text-[10px] sm:text-[11px]">
+                <span className="font-serif italic font-semibold text-amber-400">{effectiveTempoLabel}</span>
+              </div>
+            )}
             {selectedInstrument && (
               <span className="text-[10px] text-slate-400 font-mono">
                 {uiLabels.activePart} <strong className="text-amber-400">{selectedInstrument}</strong>
@@ -507,6 +532,7 @@ export function MusicScoreSheet({
             }
             activeMeasure={activeMeasure}
             selectedInstrument={selectedInstrument}
+            deviceLayout={deviceLayout}
             darkMode={true}
             showCursor={true}
             showControls={true}

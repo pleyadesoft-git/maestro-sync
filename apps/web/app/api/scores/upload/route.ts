@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServiceRoleClient } from '@music-flow/supabase/server'
+import { createServiceRoleClient, transcribeScorePagesToMusicXml } from '@music-flow/supabase/server'
+
+export const maxDuration = 300
 
 const INSTRUMENT_LABEL_TO_CODE: Record<string, string> = {
   'Violín I': 'violin_1',
@@ -470,10 +472,79 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // 9. Transcripción automática OMR con homr (PDF/imagen → MusicXML real para OSMD)
+    let omrGenerated = false
+    if (!isMusicXml) {
+      try {
+        const orderedDataUrls = rawPageImages
+          ? (JSON.parse(rawPageImages) as Array<{ pageNumber: number; dataUrl: string }>)
+              .filter((item) => item.dataUrl && item.dataUrl.startsWith('data:image/'))
+              .sort((a, b) => a.pageNumber - b.pageNumber)
+              .slice(0, 12)
+              .map((item) => item.dataUrl)
+          : []
+
+        if (isPdf || orderedDataUrls.length > 0) {
+          const omrResult = await transcribeScorePagesToMusicXml({
+            pdfBuffer: isPdf ? fileBuffer : null,
+            images: isPdf ? undefined : orderedDataUrls,
+            hints: {
+              title,
+              composer,
+              keySignature,
+              timeSignature,
+              tempoBpm: tempo,
+              instruments: parsedParts.map((p) => p.name).filter(Boolean),
+            },
+          })
+
+          const xmlStoragePath = `${user.id}/${version.id}/omr-${slug}.musicxml`
+          const { error: xmlUploadErr } = await supabase.storage
+            .from('scores')
+            .upload(xmlStoragePath, Buffer.from(omrResult.musicXml, 'utf-8'), {
+              contentType: 'application/vnd.recordare.musicxml+xml',
+              upsert: true,
+            })
+
+          if (!xmlUploadErr) {
+            const { data: xmlScoreRow } = await supabase
+              .from('scores')
+              .insert({
+                work_version_id: version.id,
+                owner_id: user.id,
+                file_path: xmlStoragePath,
+                file_type: 'musicxml',
+                page_count: omrResult.pagesTranscribed,
+              })
+              .select('id')
+              .single()
+
+            if (xmlScoreRow) {
+              await supabase.from('omr_jobs').insert({
+                score_id: xmlScoreRow.id,
+                engine: `vision-ai:${omrResult.providerUsed}`,
+                status: 'done',
+                raw_output: {
+                  pagesTranscribed: omrResult.pagesTranscribed,
+                  measuresExtracted: omrResult.measuresExtracted,
+                  warnings: omrResult.warnings,
+                },
+                completed_at: new Date().toISOString(),
+              })
+              omrGenerated = true
+            }
+          }
+        }
+      } catch (omrErr) {
+        console.warn('[upload] OMR con IA omitido (se conserva Facsímil):', omrErr)
+      }
+    }
+
     return NextResponse.json({
       ok: true,
       workId: work.id,
       versionId: version.id,
+      omrGenerated,
       message: 'Partitura procesada y guardada con éxito.',
     })
   } catch (err: any) {

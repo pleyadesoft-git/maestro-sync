@@ -218,6 +218,8 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
   // Layout adaptativo y modo de atril
   const [deviceLayout, setDeviceLayout] = useState<'mobile' | 'tablet' | 'desktop'>('tablet')
   const [indicatorStyle, setIndicatorStyle] = useState<MeasureIndicatorStyle | 'none'>('subtle')
+  const [scoreViewMode, setScoreViewMode] = useState<'facsimile' | 'digital'>('facsimile')
+  const [isTranscribingOmr, setIsTranscribingOmr] = useState(false)
   const [syncMode, setSyncMode] = useState<'metronome' | 'manual'>('metronome')
   const [showStandManager, setShowStandManager] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
@@ -300,6 +302,52 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
       if (sys?.pageNumber) {
         setActivePageNumber(sys.pageNumber)
       }
+    }
+  }
+
+  // Conversión OMR con IA de Visión (PDF/imagen → MusicXML 3.1) para abrir en OpenSheetMusicDisplay
+  const handleTranscribeToOmr = async () => {
+    if (!sessionInfo?.workVersionId || isTranscribingOmr) return
+    setIsTranscribingOmr(true)
+    setNotification(
+      locale === 'en'
+        ? 'Transcribing PDF score to Digital OSMD with Vision AI...'
+        : 'Transcribiendo partitura PDF a Digital OSMD con IA de Visión...'
+    )
+    try {
+      const { data: sessionData } = await supabase.auth.getSession()
+      const token = sessionData.session?.access_token
+      if (!token) throw new Error('Sesión no autenticada.')
+
+      const res = await fetch('/api/scores/transcribe-omr', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          workVersionId: sessionInfo.workVersionId,
+          instruments: availableInstruments,
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok || !json.ok || !json.musicXmlUrl) {
+        throw new Error(json.error || 'No se pudo generar el MusicXML.')
+      }
+
+      setMusicXmlUrl(json.musicXmlUrl)
+      setScoreViewMode('digital')
+      setNotification(
+        locale === 'en'
+          ? `Digital OSMD ready (${json.measuresExtracted} measures via ${json.providerUsed})`
+          : `Partitura Digital OSMD lista (${json.measuresExtracted} compases con ${json.providerUsed})`
+      )
+      setTimeout(() => setNotification(null), 5000)
+    } catch (err: any) {
+      setNotification(err?.message || 'Error al transcribir partitura con IA.')
+      setTimeout(() => setNotification(null), 6000)
+    } finally {
+      setIsTranscribingOmr(false)
     }
   }
 
@@ -471,8 +519,8 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
           workVersionId: sessionRow.work_version_id,
         })
 
-        // Consultas en paralelo: Versión + Obras y Scores
-        const [{ data: version }, { data: scoreRecord }] = await Promise.all([
+        // Consultas en paralelo: Versión + Obras y todos los Scores (MusicXML y/o Facsímil PDF)
+        const [{ data: version }, { data: allScores }] = await Promise.all([
           supabase
             .from('work_versions')
             .select(
@@ -485,11 +533,19 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
             .from('scores')
             .select('id, file_path, file_type, page_count')
             .eq('work_version_id', sessionRow.work_version_id)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle(),
+            .order('created_at', { ascending: false }),
         ])
         if (cancelled) return
+
+        const isXmlRecord = (s: { file_type?: string | null; file_path?: string | null }) =>
+          s.file_type === 'musicxml' ||
+          s.file_type === 'mxl' ||
+          Boolean(s.file_path?.endsWith('.musicxml')) ||
+          Boolean(s.file_path?.endsWith('.xml')) ||
+          Boolean(s.file_path?.endsWith('.mxl'))
+
+        const xmlScoreRecord = (allScores ?? []).find(isXmlRecord) ?? null
+        const scoreRecord = (allScores ?? []).find((s) => !isXmlRecord(s)) ?? xmlScoreRecord
 
         const work = version?.works as any
         const effectiveTimeSignature = work?.time_signature || '4/4'
@@ -521,55 +577,49 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
         const processedPages: ScorePageData[] = []
         const loadedSystems: ScoreSystemData[] = []
 
-        if (scoreRecord) {
-          const isXml =
-            scoreRecord.file_type === 'musicxml' ||
-            scoreRecord.file_type === 'mxl' ||
-            scoreRecord.file_path?.endsWith('.musicxml') ||
-            scoreRecord.file_path?.endsWith('.xml') ||
-            scoreRecord.file_path?.endsWith('.mxl')
-
-          if (isXml && scoreRecord.file_path) {
-            let xmlUrl: string | null = null
+        if (xmlScoreRecord?.file_path) {
+          let xmlUrl: string | null = null
+          try {
+            const { data: signed } = await supabase.storage
+              .from('scores')
+              .createSignedUrl(xmlScoreRecord.file_path, 7200)
+            xmlUrl = signed?.signedUrl ?? null
+          } catch {
+            /* ignore */
+          }
+          if (!xmlUrl) {
             try {
-              const { data: signed } = await supabase.storage
-                .from('scores')
-                .createSignedUrl(scoreRecord.file_path, 7200)
-              xmlUrl = signed?.signedUrl ?? null
-            } catch {
-              /* ignore */
-            }
-            if (!xmlUrl) {
-              try {
-                const { data: sessionData } = await supabase.auth.getSession()
-                const token = sessionData.session?.access_token
-                if (token) {
-                  const urlRes = await fetch('/api/scores/signed-url', {
-                    method: 'POST',
-                    headers: {
-                      'Content-Type': 'application/json',
-                      Authorization: `Bearer ${token}`,
-                    },
-                    body: JSON.stringify({ filePath: scoreRecord.file_path }),
-                  })
-                  const urlJson = await urlRes.json()
-                  if (urlJson.ok && urlJson.signedUrl) {
-                    xmlUrl = urlJson.signedUrl
-                  }
+              const { data: sessionData } = await supabase.auth.getSession()
+              const token = sessionData.session?.access_token
+              if (token) {
+                const urlRes = await fetch('/api/scores/signed-url', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`,
+                  },
+                  body: JSON.stringify({ filePath: xmlScoreRecord.file_path }),
+                })
+                const urlJson = await urlRes.json()
+                if (urlJson.ok && urlJson.signedUrl) {
+                  xmlUrl = urlJson.signedUrl
                 }
-              } catch {
-                /* fallback */
               }
-            }
-            if (!xmlUrl) {
-              const { data: pub } = supabase.storage.from('scores').getPublicUrl(scoreRecord.file_path)
-              xmlUrl = pub?.publicUrl ?? null
-            }
-            if (xmlUrl) {
-              setMusicXmlUrl(xmlUrl)
+            } catch {
+              /* fallback */
             }
           }
+          if (!xmlUrl) {
+            const { data: pub } = supabase.storage.from('scores').getPublicUrl(xmlScoreRecord.file_path)
+            xmlUrl = pub?.publicUrl ?? null
+          }
+          if (xmlUrl) {
+            setMusicXmlUrl(xmlUrl)
+            setScoreViewMode('digital')
+          }
+        }
 
+        if (scoreRecord) {
           const { data: rawPages } = await supabase
             .from('score_pages')
             .select('id, score_id, page_number, image_path, width_px, height_px')
@@ -625,10 +675,17 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
                 }
               }
 
-              // Si el archivo de la página es PDF, rasterizar la página a imagen PNG usando PDF.js
+              // Solo rasterizar con PDF.js si la ruta de la página apunta realmente a un PDF (no a una imagen PNG/JPG ya rasterizada)
+              const lowerPath = (p.image_path || '').toLowerCase().split('?')[0]
+              const isAlreadyImage =
+                lowerPath.endsWith('.png') ||
+                lowerPath.endsWith('.jpg') ||
+                lowerPath.endsWith('.jpeg') ||
+                lowerPath.endsWith('.webp') ||
+                lowerPath.startsWith('data:image/')
               const isPdf =
-                (p.image_path && p.image_path.toLowerCase().endsWith('.pdf')) ||
-                scoreRecord?.file_type === 'pdf'
+                !isAlreadyImage &&
+                (lowerPath.endsWith('.pdf') || scoreRecord?.file_type === 'pdf')
 
               if (isPdf && imageUrl) {
                 try {
@@ -1155,29 +1212,56 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
             </button>
           </div>
 
-          {/* Discrete Measure Indicator Selector (Punto 9) */}
-          <div className="hidden lg:flex items-center gap-1 bg-slate-950 px-2 py-1 rounded-xl border border-slate-800 text-xs">
-            <span className="text-[10px] text-slate-400">{t('indicatorLabel')}</span>
-            <select
-              value={indicatorStyle}
-              onChange={(e) => setIndicatorStyle(e.target.value as any)}
-              aria-label={t('indicatorAria')}
-              className="bg-transparent text-amber-400 text-xs font-semibold focus:outline-none cursor-pointer"
+          {/* Discrete Measure Indicator Selector (solo en modo Facsímil; OSMD usa su cursor nativo) */}
+          {!(Boolean(musicXmlUrl) && (scoreViewMode === 'digital' || scorePages.length === 0)) && (
+            <div className="hidden lg:flex items-center gap-1 bg-slate-950 px-2 py-1 rounded-xl border border-slate-800 text-xs">
+              <span className="text-[10px] text-slate-400">{t('indicatorLabel')}</span>
+              <select
+                value={indicatorStyle}
+                onChange={(e) => setIndicatorStyle(e.target.value as any)}
+                aria-label={t('indicatorAria')}
+                className="bg-transparent text-amber-400 text-xs font-semibold focus:outline-none cursor-pointer"
+              >
+                <option value="subtle" className="bg-slate-900 text-slate-200">
+                  {t('indicatorSubtle')}
+                </option>
+                <option value="bar" className="bg-slate-900 text-slate-200">
+                  {t('indicatorBar')}
+                </option>
+                <option value="minimal" className="bg-slate-900 text-slate-200">
+                  {t('indicatorMinimal')}
+                </option>
+                <option value="none" className="bg-slate-900 text-slate-200">
+                  {t('indicatorNone')}
+                </option>
+              </select>
+            </div>
+          )}
+
+          {/* Botón IA OMR para convertir PDF a MusicXML / OSMD en un clic */}
+          {isDirector && !musicXmlUrl && scorePages.length > 0 && (
+            <button
+              type="button"
+              onClick={handleTranscribeToOmr}
+              disabled={isTranscribingOmr}
+              className="h-9 px-3 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-xs text-amber-300 font-semibold flex items-center gap-1.5 transition-colors shadow-sm disabled:opacity-60 disabled:cursor-wait"
             >
-              <option value="subtle" className="bg-slate-900 text-slate-200">
-                {t('indicatorSubtle')}
-              </option>
-              <option value="bar" className="bg-slate-900 text-slate-200">
-                {t('indicatorBar')}
-              </option>
-              <option value="minimal" className="bg-slate-900 text-slate-200">
-                {t('indicatorMinimal')}
-              </option>
-              <option value="none" className="bg-slate-900 text-slate-200">
-                {t('indicatorNone')}
-              </option>
-            </select>
-          </div>
+              {isTranscribingOmr ? (
+                <Loader2 className="w-3.5 h-3.5 text-amber-400 animate-spin" />
+              ) : (
+                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              )}
+              <span className="hidden sm:inline">
+                {isTranscribingOmr
+                  ? locale === 'en'
+                    ? 'Transcribing...'
+                    : 'Transcribiendo...'
+                  : locale === 'en'
+                    ? 'Convert to OSMD (AI)'
+                    : 'Digitalizar OSMD (IA)'}
+              </span>
+            </button>
+          )}
 
           {/* Director Stand Manager Button (Punto 7) */}
           {isDirector && (
@@ -1242,6 +1326,7 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
             systems={scoreSystems}
             activePageNumber={activePageNumber}
             onPageChange={setActivePageNumber}
+            onViewModeChange={setScoreViewMode}
             deviceLayout={deviceLayout}
             measureIndicatorStyle={indicatorStyle}
             musicXmlUrl={musicXmlUrl}
@@ -1257,6 +1342,10 @@ function SessionContent({ params }: { params?: Promise<{ locale: string; code: s
               measureWord: tSheet('measureWord'),
               measurePrefix: tSheet('measurePrefix'),
               pageWord: locale === 'en' ? 'Page' : 'Página',
+              requiresMusicXml:
+                locale === 'en'
+                  ? 'Requires a MusicXML (.musicxml / .mxl) file'
+                  : 'Requiere un archivo MusicXML (.musicxml / .mxl)',
             }}
             highlightLabel={
               activeSystem ? t('highlightMeasure', { instrument: selectedInstrument, measure: currentMeasure }) : undefined

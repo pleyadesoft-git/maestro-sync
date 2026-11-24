@@ -1,11 +1,9 @@
 'use client'
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { OpenSheetMusicDisplay, BackendType } from 'opensheetmusicdisplay'
-import { Loader2, AlertCircle, ZoomIn, ZoomOut, RotateCcw, Music } from 'lucide-react'
+import { OpenSheetMusicDisplay, CursorType } from 'opensheetmusicdisplay'
+import { Loader2, AlertCircle, ZoomIn, ZoomOut, RotateCcw, Music, FileMusic } from 'lucide-react'
 import { cn } from './utils'
-import { DEFAULT_BEETHOVEN_5_MUSICXML } from './defaultScoreXml'
-import { generateSyntheticMusicXml } from './syntheticMusicXml'
 
 export interface OsmdLoadedScoreInfo {
   title?: string
@@ -40,6 +38,8 @@ export interface OsmdScoreViewerProps {
   selectedInstrument?: string | null
   /** Nivel de zoom inicial (ej. 1.0) */
   zoom?: number
+  /** Modo de dispositivo para zoom responsivo en atril */
+  deviceLayout?: 'mobile' | 'tablet' | 'desktop'
   /** Si se debe mostrar el cursor musical de playback */
   showCursor?: boolean
   /** Modo oscuro Stand-Ready (por defecto true) */
@@ -60,20 +60,29 @@ export interface OsmdScoreViewerProps {
     zoomReset?: string
     allInstruments?: string
     activePart?: string
+    noMusicXmlTitle?: string
+    noMusicXmlDescription?: string
   }
 }
 
+const DEFAULT_ZOOM_BY_LAYOUT: Record<'mobile' | 'tablet' | 'desktop', number> = {
+  mobile: 0.65,
+  tablet: 0.92,
+  desktop: 1.0,
+}
+
 /**
- * Normaliza nombres de instrumentos eliminando tildes, números romanos/arábigos y puntuación
- * para emparejar flexiblemente nombres como "Violín I", "Violin 1", "vln 1", "Violoncello", "Cello".
+ * Normaliza nombres de instrumentos eliminando tildes, sufijos de mano/clave (RH/LH, Mano derecha/izquierda),
+ * números romanos/arábigos y puntuación para mantener siempre agrupadas las claves (ej. Piano Sol + Fa).
  */
 function normalizeInstrument(str: string): string {
   return str
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '') // Quita tildes
-    .replace(/[^a-z0-9]/g, '')      // Quita espacios y puntuación
-    .replace(/i{1,3}$/, (m) => String(m.length)) // Convierte "i" -> "1", "ii" -> "2", "iii" -> "3"
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\b(right\s*hand|left\s*hand|mano\s*derecha|mano\s*izquierda|rh|lh|treble|bass|clave\s*de\s*sol|clave\s*de\s*fa)\b/g, '')
+    .replace(/[^a-z0-9]/g, '')
+    .replace(/i{1,3}$/, (m) => String(m.length))
 }
 
 function instrumentsMatch(instName: string, selected: string): boolean {
@@ -83,7 +92,10 @@ function instrumentsMatch(instName: string, selected: string): boolean {
   if (normA === normB) return true
   if (normA.includes(normB) || normB.includes(normA)) return true
 
-  // Alias comunes
+  // Alias comunes (incluyendo instrumentos de doble clave Sol + Fa)
+  if ((normA.includes('piano') || normA.includes('teclad') || normA.includes('keyboard') || normA.includes('pno')) && (normB.includes('piano') || normB.includes('teclad') || normB.includes('keyboard') || normB.includes('pno'))) return true
+  if ((normA.includes('organ') || normA.includes('organo')) && (normB.includes('organ') || normB.includes('organo'))) return true
+  if ((normA.includes('harp') || normA.includes('arpa')) && (normB.includes('harp') || normB.includes('arpa'))) return true
   if ((normA.includes('cello') || normA.includes('violoncel')) && (normB.includes('cello') || normB.includes('violoncel'))) return true
   if ((normA.includes('flaut') || normA.includes('flute')) && (normB.includes('flaut') || normB.includes('flute'))) return true
   if ((normA.includes('trompet') || normA.includes('trumpet')) && (normB.includes('trompet') || normB.includes('trumpet'))) return true
@@ -110,6 +122,7 @@ export function OsmdScoreViewer({
   activeMeasure,
   selectedInstrument,
   zoom: externalZoom,
+  deviceLayout = 'tablet',
   showCursor = true,
   darkMode = true,
   showControls = true,
@@ -126,67 +139,180 @@ export function OsmdScoreViewer({
     zoomReset: labels?.zoomReset ?? 'Restablecer zoom',
     allInstruments: labels?.allInstruments ?? 'Todos',
     activePart: labels?.activePart ?? 'Parte:',
+    noMusicXmlTitle: labels?.noMusicXmlTitle ?? 'Notación Digital SVG requiere MusicXML',
+    noMusicXmlDescription:
+      labels?.noMusicXmlDescription ??
+      'Esta obra fue subida como PDF o imagen. Sube un archivo .musicxml o .mxl para verla con OpenSheetMusicDisplay y su cursor nativo.',
   }
 
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const osmdRef = useRef<OpenSheetMusicDisplay | null>(null)
-  const [internalZoom, setInternalZoom] = useState(1.0)
+  const activeMeasureRef = useRef<number | null>(activeMeasure ?? null)
+  const lastCursorTopRef = useRef<number | null>(null)
+  const [internalZoom, setInternalZoom] = useState(DEFAULT_ZOOM_BY_LAYOUT[deviceLayout])
   const currentZoom = externalZoom ?? internalZoom
 
-  const [isLoading, setIsLoading] = useState(true)
+  useEffect(() => {
+    activeMeasureRef.current = activeMeasure ?? null
+  }, [activeMeasure])
+
+  // Ajustar zoom automáticamente al cambiar entre Móvil / Atril / Escritorio
+  useEffect(() => {
+    if (externalZoom == null) {
+      setInternalZoom(DEFAULT_ZOOM_BY_LAYOUT[deviceLayout])
+    }
+  }, [deviceLayout, externalZoom])
+
+  const [isLoading, setIsLoading] = useState(false)
+  const [isScoreReady, setIsScoreReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loadedInfo, setLoadedInfo] = useState<OsmdLoadedScoreInfo | null>(null)
   const [cursorMeasure, setCursorMeasure] = useState<number | null>(null)
+  const [reloadNonce, setReloadNonce] = useState(0)
 
-  // Determinar la fuente de MusicXML: texto directo, URL, síntesis para la obra actual, o muestra por omisión
+  // Solo aceptar MusicXML/MXL real (nunca generar silencios sintéticos ni alterar tonalidad)
   const effectiveXmlSource = useMemo(() => {
-    if (musicXml && musicXml.trim().length > 0) return { type: 'string', content: musicXml }
-    if (musicXmlUrl && musicXmlUrl.trim().length > 0) return { type: 'url', content: musicXmlUrl }
-    if ((totalMeasures && totalMeasures > 0) || (title && title.trim().length > 0)) {
-      return {
-        type: 'string',
-        content: generateSyntheticMusicXml({
-          title: title || 'Partitura Digital',
-          composer: composer || '',
-          timeSignature: timeSignature || '4/4',
-          keySignature: keySignature || 'C major',
-          tempoBpm: tempoBpm || 120,
-          totalMeasures: totalMeasures || 32,
-          parts:
-            parts && parts.length > 0
-              ? parts
-              : selectedInstrument
-                ? [{ name: selectedInstrument }]
-                : [{ name: 'Todos' }],
-        }),
+    if (musicXml && musicXml.trim().length > 0) return { type: 'string' as const, content: musicXml }
+    if (musicXmlUrl && musicXmlUrl.trim().length > 0) return { type: 'url' as const, content: musicXmlUrl }
+    return null
+  }, [musicXml, musicXmlUrl])
+
+  // Ajuste no intrusivo del elemento DOM del cursor nativo de OSMD (sin alterar su color ni geometría)
+  const configureNativeCursorElement = useCallback((el: HTMLElement | null) => {
+    if (!el) return
+    el.style.pointerEvents = 'none'
+    el.style.borderRadius = '4px'
+    el.style.transition = 'top 0.12s ease-out, left 0.12s ease-out, width 0.12s ease-out, height 0.12s ease-out'
+  }, [])
+
+  // Posicionamiento exacto del cursor nativo de OSMD sobre el compás indicado + auto-scroll solo al cambiar de renglón
+  const positionCursorToMeasure = useCallback(
+    (osmd: OpenSheetMusicDisplay, targetMeasure: number | null, allowScroll: boolean) => {
+      if (!osmd.cursor) return
+      if (!showCursor) {
+        osmd.cursor.hide()
+        return
+      }
+      const measure = Math.max(1, targetMeasure ?? 1)
+      const cursor = osmd.cursor
+      try {
+        cursor.reset()
+        let guard = 0
+        while (
+          cursor.Iterator &&
+          !cursor.Iterator.EndReached &&
+          ((cursor.Iterator.CurrentMeasure?.MeasureNumber ?? cursor.Iterator.CurrentMeasureIndex + 1) < measure) &&
+          guard < 3500
+        ) {
+          guard++
+          cursor.nextMeasure()
+        }
+        cursor.show()
+        cursor.update()
+        configureNativeCursorElement(cursor.cursorElement)
+
+        if (allowScroll && cursor.cursorElement) {
+          const top = cursor.cursorElement.offsetTop
+          if (lastCursorTopRef.current === null || Math.abs(top - lastCursorTopRef.current) > 12) {
+            lastCursorTopRef.current = top
+            cursor.cursorElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          }
+        }
+      } catch (err) {
+        console.warn('[OsmdScoreViewer] Error posicionando cursor nativo en compás:', measure, err)
+      }
+    },
+    [showCursor, configureNativeCursorElement]
+  )
+
+  // Aplicar filtro de instrumento garantizando visibilidad de TODAS las claves (ej. Piano Sol + Fa)
+  const applyFilter = useCallback((osmd: OpenSheetMusicDisplay, instrumentName?: string | null) => {
+    const instruments = osmd.Sheet?.Instruments
+    if (!instruments || instruments.length === 0) return
+
+    const showAllStaves = (inst: any) => {
+      inst.Visible = true
+      if (Array.isArray(inst.Staves)) {
+        inst.Staves.forEach((stave: any) => {
+          stave.Visible = true
+        })
       }
     }
-    return { type: 'string', content: DEFAULT_BEETHOVEN_5_MUSICXML }
-  }, [musicXml, musicXmlUrl, title, composer, timeSignature, keySignature, tempoBpm, totalMeasures, parts, selectedInstrument])
 
-  // 1. Inicialización y carga de OSMD
+    const isAll =
+      !instrumentName ||
+      instrumentName === 'Todos' ||
+      instrumentName === 'All' ||
+      instrumentName.toLowerCase() === 'todos' ||
+      instrumentName.toLowerCase() === 'all'
+
+    if (isAll) {
+      instruments.forEach(showAllStaves)
+      return
+    }
+
+    let matchFound = false
+    instruments.forEach((inst) => {
+      const match = instrumentsMatch(inst.Name || '', instrumentName)
+      if (match) {
+        showAllStaves(inst)
+        matchFound = true
+      } else {
+        inst.Visible = false
+      }
+    })
+
+    // Si ningún instrumento coincidió, mantener todos visibles (con todas sus claves) para no dejar en blanco el atril
+    if (!matchFound) {
+      instruments.forEach(showAllStaves)
+    }
+  }, [])
+
+  // 1. Inicialización y carga de OSMD con cursor nativo de compás completo (CurrentArea)
   useEffect(() => {
     let cancelled = false
     const hostEl = containerRef.current
     if (!hostEl) return
 
+    hostEl.innerHTML = ''
+    setIsScoreReady(false)
+    setCursorMeasure(null)
+    lastCursorTopRef.current = null
+
+    if (!effectiveXmlSource) {
+      setIsLoading(false)
+      setError(null)
+      return
+    }
+
     setIsLoading(true)
     setError(null)
-
-    // Limpieza de render previo si existía
-    hostEl.innerHTML = ''
 
     let osmd: OpenSheetMusicDisplay
     try {
       osmd = new OpenSheetMusicDisplay(hostEl, {
-        autoResize: true,
+        autoResize: false,
         backend: 'svg',
         drawingParameters: 'default',
         drawTitle: true,
         drawSubtitle: true,
         drawComposer: true,
         drawPartNames: true,
+        drawMeasureNumbers: true,
+        drawMeasureNumbersOnlyAtSystemStart: false,
+        measureNumberInterval: 1,
         followCursor: true,
+        autoGenerateMultipleRestMeasuresFromRestMeasures: false,
+        newSystemFromXML: true,
+        cursorsOptions: [
+          {
+            type: CursorType.CurrentArea, // Resaltado nativo de compás completo (cubre ambas claves Sol + Fa)
+            color: '#f59e0b',             // Ámbar Stand-Ready
+            alpha: 0.28,
+            follow: true,
+          },
+        ],
       })
 
       // Reglas de Grabado Stand-Ready (Alto contraste / Modo Oscuro)
@@ -199,7 +325,7 @@ export function OsmdScoreViewer({
         rules.DefaultColorNotehead = '#f1f5f9'
         rules.DefaultColorRest = '#f1f5f9'
         rules.DefaultColorStem = '#f1f5f9'
-        rules.DefaultColorLabel = '#94a3b8'         // Nombres de instrumentos/partes (slate-400)
+        rules.DefaultColorLabel = '#94a3b8'         // Nombres de instrumentos y números de compás
         rules.DefaultColorLyrics = '#cbd5e1'        // Letra (slate-300)
         rules.DefaultColorTitle = '#f8fafc'         // Título principal
         rules.DefaultColorCursor = '#f59e0b'        // Cursor ámbar MaestroSync (#f59e0b)
@@ -210,6 +336,7 @@ export function OsmdScoreViewer({
       rules.RenderSingleHorizontalStaffline = false
       rules.CompactMode = false
       rules.AutoBeamNotes = true
+      ;(rules as any).AutoGenerateMultipleRestMeasuresFromRestMeasures = false
 
       osmdRef.current = osmd
     } catch (err: any) {
@@ -222,61 +349,36 @@ export function OsmdScoreViewer({
 
     async function loadScore() {
       try {
-        if (effectiveXmlSource.type === 'string') {
-          await osmd.load(effectiveXmlSource.content)
-        } else {
-          // Si es URL, descargar o pasar URL directamente
-          await osmd.load(effectiveXmlSource.content)
-        }
+        await osmd.load(effectiveXmlSource!.content)
 
         if (cancelled) return
 
-        // Extraer metadata parseada de la obra
         const sheet = osmd.Sheet
         const instruments = sheet?.Instruments?.map((inst) => ({
           id: String(inst.Id || inst.IdString || ''),
           name: inst.Name || 'Instrumento',
         })) ?? []
 
-        const title = sheet?.Title?.text || sheet?.TitleString || undefined
-        const composer = sheet?.Composer?.text || sheet?.ComposerString || undefined
-        const totalMeasures = sheet?.SourceMeasures?.length || 1
+        const parsedTitle = sheet?.Title?.text || sheet?.TitleString || undefined
+        const parsedComposer = sheet?.Composer?.text || sheet?.ComposerString || undefined
+        const parsedMeasures = sheet?.SourceMeasures?.length || 1
 
         const info: OsmdLoadedScoreInfo = {
-          title,
-          composer,
+          title: parsedTitle,
+          composer: parsedComposer,
           instruments,
-          totalMeasures,
+          totalMeasures: parsedMeasures,
         }
         setLoadedInfo(info)
         onScoreLoaded?.(info)
 
-        // Aplicar zoom
         osmd.zoom = currentZoom
-
-        // Aplicar filtro de instrumento si fue suministrado
         applyFilter(osmd, selectedInstrument)
-
-        // Render inicial
         osmd.render()
 
-        // Configurar cursor ámbar
-        if (osmd.cursor) {
-          ;(osmd.cursor as any).cursorOptions = {
-            color: '#f59e0b',
-            alpha: 0.35,
-            type: 0,
-            follow: true,
-          }
-
-          if (showCursor) {
-            osmd.cursor.show()
-            styleCursorElement(osmd.cursor.cursorElement)
-          } else {
-            osmd.cursor.hide()
-          }
-        }
-
+        positionCursorToMeasure(osmd, activeMeasureRef.current, false)
+        setCursorMeasure(activeMeasureRef.current ?? 1)
+        setIsScoreReady(true)
         setIsLoading(false)
       } catch (err: any) {
         if (cancelled) return
@@ -297,131 +399,51 @@ export function OsmdScoreViewer({
         /* cleanup */
       }
       osmdRef.current = null
+      setIsScoreReady(false)
     }
-  }, [effectiveXmlSource, darkMode])
+  }, [effectiveXmlSource, darkMode, reloadNonce])
 
-  // 2. Aplicar filtro de instrumento
-  const applyFilter = useCallback((osmd: OpenSheetMusicDisplay, instrumentName?: string | null) => {
-    const instruments = osmd.Sheet?.Instruments
-    if (!instruments || instruments.length === 0) return
-
-    const isAll =
-      !instrumentName ||
-      instrumentName === 'Todos' ||
-      instrumentName === 'All' ||
-      instrumentName.toLowerCase() === 'todos' ||
-      instrumentName.toLowerCase() === 'all'
-
-    if (isAll) {
-      instruments.forEach((inst) => {
-        inst.Visible = true
-      })
-      return
-    }
-
-    let matchFound = false
-    instruments.forEach((inst) => {
-      const match = instrumentsMatch(inst.Name || '', instrumentName)
-      inst.Visible = match
-      if (match) matchFound = true
-    })
-
-    // Si ningún instrumento coincidió, mantenerlos todos visibles para no dejar en blanco la pantalla
-    if (!matchFound) {
-      instruments.forEach((inst) => {
-        inst.Visible = true
-      })
-    }
-  }, [])
-
-  // 3. Reaccionar a cambios en selectedInstrument
+  // 2. Reaccionar a cambios en selectedInstrument (preservando el compás activo y todas las claves del instrumento)
   useEffect(() => {
     const osmd = osmdRef.current
-    if (!osmd || !osmd.IsReadyToRender()) return
+    if (!isScoreReady || !osmd || !osmd.IsReadyToRender()) return
 
     applyFilter(osmd, selectedInstrument)
     try {
       osmd.render()
-      if (osmd.cursor && showCursor) {
-        osmd.cursor.show()
-        styleCursorElement(osmd.cursor.cursorElement)
-      }
+      positionCursorToMeasure(osmd, activeMeasureRef.current, false)
     } catch (err) {
       console.warn('[OsmdScoreViewer] Error actualizando filtro de instrumento:', err)
     }
-  }, [selectedInstrument, applyFilter, showCursor])
+  }, [selectedInstrument, applyFilter, isScoreReady, positionCursorToMeasure])
 
-  // 4. Reaccionar a cambios en Zoom
+  // 3. Reaccionar a cambios en Zoom (re-anclando cursor nativo tras re-render)
   useEffect(() => {
     const osmd = osmdRef.current
-    if (!osmd || !osmd.IsReadyToRender()) return
+    if (!isScoreReady || !osmd || !osmd.IsReadyToRender()) return
 
     try {
       osmd.zoom = currentZoom
       osmd.render()
-      if (osmd.cursor && showCursor) {
-        osmd.cursor.show()
-        styleCursorElement(osmd.cursor.cursorElement)
-      }
+      positionCursorToMeasure(osmd, activeMeasureRef.current, false)
     } catch (err) {
       console.warn('[OsmdScoreViewer] Error aplicando zoom:', err)
     }
-  }, [currentZoom, showCursor])
+  }, [currentZoom, isScoreReady, positionCursorToMeasure])
 
-  // 5. Estilización del elemento DOM del cursor (Ámbar Stand-Ready con glow)
-  function styleCursorElement(el: HTMLElement | null) {
-    if (!el) return
-    el.style.backgroundColor = 'rgba(245, 158, 11, 0.4)'
-    el.style.boxShadow = '0 0 16px rgba(245, 158, 11, 0.7)'
-    el.style.borderRadius = '3px'
-    el.style.pointerEvents = 'none'
-    el.style.zIndex = '15'
-    el.style.transition = 'top 0.12s ease-out, left 0.12s ease-out, width 0.12s ease-out'
-  }
-
-  // 6. Sincronización milimétrica con activeMeasure (Realtime Playback sin drift)
+  // 4. Sincronización milimétrica con activeMeasure usando exclusivamente el cursor nativo de OSMD
   useEffect(() => {
     const osmd = osmdRef.current
-    if (!osmd || !osmd.IsReadyToRender() || !osmd.cursor || activeMeasure == null) return
-
-    if (!showCursor) {
-      osmd.cursor.hide()
-      return
-    }
-
-    const cursor = osmd.cursor
-    // Si el compás no ha cambiado, no repetir el ciclo de búsqueda
+    if (!isScoreReady || !osmd || !osmd.IsReadyToRender() || !osmd.cursor || activeMeasure == null) return
     if (cursorMeasure === activeMeasure) return
 
-    try {
-      cursor.reset()
-      let guard = 0
-      while (
-        cursor.Iterator &&
-        !cursor.Iterator.EndReached &&
-        ((cursor.Iterator.CurrentMeasure?.MeasureNumber ?? cursor.Iterator.CurrentMeasureIndex + 1) < activeMeasure) &&
-        guard < 3500
-      ) {
-        guard++
-        cursor.nextMeasure()
-      }
+    positionCursorToMeasure(osmd, activeMeasure, true)
+    setCursorMeasure(activeMeasure)
+  }, [activeMeasure, cursorMeasure, isScoreReady, positionCursorToMeasure])
 
-      cursor.show()
-      styleCursorElement(cursor.cursorElement)
-      setCursorMeasure(activeMeasure)
-
-      // Auto-scroll suave centrado en el atril cuando el compás avanza
-      if (cursor.cursorElement) {
-        cursor.cursorElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      }
-    } catch (err) {
-      console.warn('[OsmdScoreViewer] Error actualizando cursor al compás:', activeMeasure, err)
-    }
-  }, [activeMeasure, showCursor, cursorMeasure])
-
-  // 7. Auto-Resize con debounce ante cambios de tamaño o rotación de tablet
+  // 5. Auto-Resize con debounce ante cambios de tamaño o rotación de tablet (re-ancla cursor nativo sin descuadre)
   useEffect(() => {
-    const hostEl = containerRef.current
+    const hostEl = scrollContainerRef.current
     if (!hostEl) return
 
     let resizeTimer: NodeJS.Timeout
@@ -438,10 +460,7 @@ export function OsmdScoreViewer({
             if (osmd && osmd.IsReadyToRender()) {
               try {
                 osmd.render()
-                if (osmd.cursor && showCursor) {
-                  osmd.cursor.show()
-                  styleCursorElement(osmd.cursor.cursorElement)
-                }
+                positionCursorToMeasure(osmd, activeMeasureRef.current, false)
               } catch (e) {
                 console.warn('[OsmdScoreViewer] Error en re-render de redimensión:', e)
               }
@@ -456,7 +475,7 @@ export function OsmdScoreViewer({
       clearTimeout(resizeTimer)
       ro.disconnect()
     }
-  }, [showCursor])
+  }, [positionCursorToMeasure])
 
   const handleZoomChange = (delta: number) => {
     const next = Math.min(2.0, Math.max(0.4, Number((currentZoom + delta).toFixed(2))))
@@ -464,7 +483,7 @@ export function OsmdScoreViewer({
   }
 
   const handleZoomReset = () => {
-    setInternalZoom(1.0)
+    setInternalZoom(DEFAULT_ZOOM_BY_LAYOUT[deviceLayout])
   }
 
   return (
@@ -479,7 +498,7 @@ export function OsmdScoreViewer({
       }}
     >
       {/* Barra de herramientas flotante para atril / zoom */}
-      {showControls && (
+      {showControls && effectiveXmlSource && (
         <div className="absolute top-3 right-3 z-20 flex items-center gap-1.5 p-1 rounded-xl bg-slate-900/85 backdrop-blur-md border border-slate-800 shadow-xl">
           {loadedInfo?.instruments && loadedInfo.instruments.length > 1 && (
             <div className="hidden sm:flex items-center gap-1 px-2 py-0.5 text-[11px] font-semibold text-amber-400 border-r border-slate-800 mr-1">
@@ -528,6 +547,17 @@ export function OsmdScoreViewer({
         </div>
       )}
 
+      {/* Estado cuando la obra no posee MusicXML/MXL */}
+      {!effectiveXmlSource && !isLoading && !error && (
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-slate-950 p-6 text-center">
+          <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-400">
+            <FileMusic className="w-8 h-8" />
+          </div>
+          <p className="text-sm font-semibold text-slate-200 max-w-md">{uiLabels.noMusicXmlTitle}</p>
+          <p className="text-xs text-slate-400 max-w-md leading-relaxed">{uiLabels.noMusicXmlDescription}</p>
+        </div>
+      )}
+
       {/* Estado de error */}
       {error && !isLoading && (
         <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-slate-950 p-6 text-center">
@@ -537,7 +567,7 @@ export function OsmdScoreViewer({
           <p className="text-sm font-semibold text-rose-300 max-w-md">{error}</p>
           <button
             type="button"
-            onClick={() => setInternalZoom((z) => z)}
+            onClick={() => setReloadNonce((n) => n + 1)}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition-colors"
           >
             <RotateCcw className="w-3.5 h-3.5" />
@@ -546,15 +576,17 @@ export function OsmdScoreViewer({
         </div>
       )}
 
-      {/* Contenedor SVG donde OSMD dibuja la partitura */}
+      {/* Contenedor scrollable externo + host interno `relative` sin padding para anclaje exacto del cursor nativo OSMD */}
       <div
-        ref={containerRef}
-        data-testid="osmd-svg-container"
-        className="w-full h-full overflow-y-auto overflow-x-hidden p-4 sm:p-6 flex flex-col items-center scroll-smooth focus:outline-none"
-        style={{
-          minHeight: '100%',
-        }}
-      />
+        ref={scrollContainerRef}
+        className="flex-1 min-h-0 w-full overflow-y-auto overflow-x-hidden p-3 sm:p-6 scroll-smooth focus:outline-none"
+      >
+        <div
+          ref={containerRef}
+          data-testid="osmd-svg-container"
+          className="relative w-full min-h-full"
+        />
+      </div>
     </div>
   )
 }
