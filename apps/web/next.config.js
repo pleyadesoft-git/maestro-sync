@@ -42,9 +42,12 @@ const withPWA = require('@ducanh2912/next-pwa').default({
   dest: 'public',
   disable: process.env.NODE_ENV === 'development' && process.env.ENABLE_PWA !== 'true',
   register: true,
-  reloadOnOnline: true,
+  reloadOnOnline: false,
   cacheOnFrontEndNav: true,
   aggressiveFrontEndNavCaching: true,
+  fallbacks: {
+    document: '/~offline',
+  },
   workboxOptions: {
     skipWaiting: false,
     clientsClaim: true,
@@ -62,6 +65,40 @@ const nextConfig = {
     '@music-flow/i18n',
     '@music-flow/stripe',
   ],
+  async headers() {
+    return [
+      {
+        source: '/sw.js',
+        headers: [
+          {
+            key: 'Content-Type',
+            value: 'application/javascript; charset=utf-8',
+          },
+          {
+            key: 'Cache-Control',
+            value: 'no-cache, no-store, must-revalidate',
+          },
+          {
+            key: 'Service-Worker-Allowed',
+            value: '/',
+          },
+        ],
+      },
+      {
+        source: '/manifest.json',
+        headers: [
+          {
+            key: 'Content-Type',
+            value: 'application/manifest+json; charset=utf-8',
+          },
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=0, must-revalidate',
+          },
+        ],
+      },
+    ]
+  },
   webpack: (config) => {
     config.resolve.alias.canvas = false
     return config

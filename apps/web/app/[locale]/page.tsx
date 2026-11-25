@@ -23,6 +23,7 @@ import {
 } from 'lucide-react'
 import { createRoomForVersion, fetchAnyOwnedVersion } from '../../lib/rooms'
 import PWAInstallButton from '../components/PWAInstallButton'
+import PWAUpdateSettingsButton from '../components/PWAUpdateSettingsButton'
 import LanguageSwitcher from '../components/LanguageSwitcher'
 
 export default function HomePage({ params }: { params: Promise<{ locale: string }> }) {
@@ -151,6 +152,7 @@ export default function HomePage({ params }: { params: Promise<{ locale: string 
           <span>{t('badge')}</span>
         </div>
         <PWAInstallButton />
+        <PWAUpdateSettingsButton />
         <LanguageSwitcher />
         {!authChecking && currentUserEmail && (
           <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-900 border border-slate-800 text-xs text-slate-300">
